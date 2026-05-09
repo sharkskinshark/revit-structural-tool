@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Accidental artifacts
+~/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output
+output/
+*.xlsx
+*.pdf
+!docs/*.pdf
+
+# Environment
+.env
+.env.local
+
+# Revit
+*.rvt.bak
+*.0001.rvt
+
+# Logs
+*.log

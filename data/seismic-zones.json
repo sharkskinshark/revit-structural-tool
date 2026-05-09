@@ -1,0 +1,36 @@
+{
+  "version": "民國113年版 建築物耐震設計規範",
+  "effective_date": "2024-03-01",
+  "description": "Seismic design parameters by city/district. Verify against latest official tables (Table 2-1).",
+  "important_note": "These are SAMPLE values for common areas. For actual design, refer to the full official table 2-1 covering all 370+ districts.",
+  "zones": {
+    "臺北市": { "SS": 0.6, "S1": 0.35, "SDS": 0.66, "SD1": 0.385, "site_class": 2, "near_fault": false },
+    "新北市-淡水區": { "SS": 0.6, "S1": 0.35, "SDS": 0.66, "SD1": 0.385, "site_class": 2, "near_fault": false },
+    "新北市-板橋區": { "SS": 0.6, "S1": 0.35, "SDS": 0.66, "SD1": 0.385, "site_class": 2, "near_fault": false },
+    "新北市-新店區": { "SS": 0.6, "S1": 0.35, "SDS": 0.66, "SD1": 0.385, "site_class": 2, "near_fault": false },
+    "基隆市": { "SS": 0.6, "S1": 0.35, "SDS": 0.66, "SD1": 0.385, "site_class": 2, "near_fault": false },
+    "桃園市": { "SS": 0.6, "S1": 0.34, "SDS": 0.66, "SD1": 0.374, "site_class": 2, "near_fault": false },
+    "新竹市": { "SS": 0.7, "S1": 0.38, "SDS": 0.77, "SD1": 0.418, "site_class": 2, "near_fault": false },
+    "新竹縣": { "SS": 0.7, "S1": 0.38, "SDS": 0.77, "SD1": 0.418, "site_class": 2, "near_fault": false },
+    "苗栗縣": { "SS": 0.7, "S1": 0.38, "SDS": 0.77, "SD1": 0.418, "site_class": 2, "near_fault": false },
+    "臺中市": { "SS": 0.7, "S1": 0.38, "SDS": 0.77, "SD1": 0.418, "site_class": 2, "near_fault": false },
+    "南投縣": { "SS": 0.7, "S1": 0.38, "SDS": 0.77, "SD1": 0.418, "site_class": 2, "near_fault": true },
+    "彰化縣": { "SS": 0.7, "S1": 0.38, "SDS": 0.77, "SD1": 0.418, "site_class": 2, "near_fault": false },
+    "雲林縣": { "SS": 0.7, "S1": 0.4, "SDS": 0.77, "SD1": 0.44, "site_class": 2, "near_fault": false },
+    "嘉義市": { "SS": 0.8, "S1": 0.45, "SDS": 0.88, "SD1": 0.495, "site_class": 2, "near_fault": false },
+    "嘉義縣": { "SS": 0.8, "S1": 0.45, "SDS": 0.88, "SD1": 0.495, "site_class": 2, "near_fault": false },
+    "臺南市": { "SS": 0.8, "S1": 0.45, "SDS": 0.88, "SD1": 0.495, "site_class": 2, "near_fault": false },
+    "高雄市": { "SS": 0.6, "S1": 0.35, "SDS": 0.66, "SD1": 0.385, "site_class": 2, "near_fault": false },
+    "屏東縣-屏東市": { "SS": 0.6, "S1": 0.35, "SDS": 0.66, "SD1": 0.385, "site_class": 2, "near_fault": false },
+    "宜蘭縣-宜蘭市": { "SS": 0.7, "S1": 0.38, "SDS": 0.77, "SD1": 0.418, "site_class": 2, "near_fault": false },
+    "花蓮縣-花蓮市": { "SS": 0.9, "S1": 0.55, "SDS": 0.96, "SD1": 0.585, "site_class": 2, "near_fault": true },
+    "花蓮縣-吉安鄉": { "SS": 0.9, "S1": 0.55, "SDS": 0.96, "SD1": 0.585, "site_class": 2, "near_fault": true },
+    "臺東縣-臺東市": { "SS": 0.7, "S1": 0.4, "SDS": 0.77, "SD1": 0.44, "site_class": 2, "near_fault": false }
+  },
+  "site_class_factors": {
+    "1": { "label": "第一類地盤（堅實）", "Fa_factor": 1.0, "Fv_factor": 1.0 },
+    "2": { "label": "第二類地盤（普通）", "Fa_factor": 1.1, "Fv_factor": 1.1 },
+    "3": { "label": "第三類地盤（軟弱）", "Fa_factor": 1.2, "Fv_factor": 1.4 }
+  },
+  "TODO": "完整 370+ 行政區資料須從規範表 2-1 完整輸入"
+}

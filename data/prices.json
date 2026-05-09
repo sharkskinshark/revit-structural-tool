@@ -1,0 +1,78 @@
+{
+  "version": "2024 Q4 Reference Prices (NTD)",
+  "currency": "TWD",
+  "last_updated": "2024-12-01",
+  "disclaimer": "These are reference prices for design-phase estimation. Actual prices vary by region, project size, market conditions, and contractor. Verify with current quotes before using for budget commitments.",
+  "concrete": {
+    "fc_210": { "price_per_m3": 3200, "label": "fc'=210 kgf/cm²", "use": "墊層、雜項" },
+    "fc_245": { "price_per_m3": 3300, "label": "fc'=245 kgf/cm²", "use": "高樓層柱、梁" },
+    "fc_280": { "price_per_m3": 3500, "label": "fc'=280 kgf/cm²", "use": "中段柱梁、樓板、剪力牆" },
+    "fc_350": { "price_per_m3": 4000, "label": "fc'=350 kgf/cm²", "use": "低樓層柱、地下室" },
+    "fc_420": { "price_per_m3": 4500, "label": "fc'=420 kgf/cm²", "use": "超高樓底層柱" }
+  },
+  "rebar": {
+    "general": {
+      "price_per_ton": 28000,
+      "label": "鋼筋 SD420W (含工料)",
+      "fy_kgfcm2": 4200,
+      "density_kg_m3": 7850
+    }
+  },
+  "steel": {
+    "structural": {
+      "price_per_ton": 55000,
+      "label": "鋼骨 SN490B (含工料、防火被覆)",
+      "fy_kgfcm2": 3300,
+      "density_kg_m3": 7850
+    },
+    "high_strength": {
+      "price_per_ton": 65000,
+      "label": "高強度鋼 SM570 (含工料、防火被覆)"
+    }
+  },
+  "specialty": {
+    "diaphragm_wall": {
+      "price_per_m3": 10500,
+      "label": "連續壁 (含設備、施工)",
+      "includes": ["導溝", "穩定液", "鋼筋", "混凝土", "切除"]
+    },
+    "diaphragm_wall_thick": {
+      "600mm": 9000,
+      "800mm": 10500,
+      "1000mm": 12000,
+      "1200mm": 14000
+    },
+    "earth_retention": {
+      "price_per_m3_excavation": 800,
+      "label": "土方開挖、外運"
+    }
+  },
+  "formwork": {
+    "general": {
+      "price_per_m2": 800,
+      "label": "模板 (含工料)"
+    }
+  },
+  "reinforcement_ratios": {
+    "_description": "Empirical reinforcement ratios for quantity estimation",
+    "column": 0.025,
+    "main_beam": 0.018,
+    "secondary_beam": 0.015,
+    "slab": 0.006,
+    "shear_wall": 0.008,
+    "diaphragm_wall": 0.012,
+    "foundation": 0.015
+  },
+  "steel_content_ratios": {
+    "_description": "For SRC structures (steel content as ratio of section)",
+    "src_column": 0.05,
+    "src_beam": 0.04
+  },
+  "regional_adjustments": {
+    "_description": "Multiply base prices by these factors for regional variations",
+    "臺北都會區": 1.05,
+    "中南部主要城市": 1.0,
+    "離島": 1.25,
+    "山區偏遠": 1.15
+  }
+}
