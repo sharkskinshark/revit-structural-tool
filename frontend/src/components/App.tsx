@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 const COLORS = ["#3b6ea5","#5a8c5a","#a5783b","#8b5aa5","#a53b5e","#3ba5a5","#7a7a3b","#5a3b8b"];
 const TYPES = [
@@ -381,11 +382,14 @@ function detectTransferIssues(volumes) {
 // ═══════════════════════════════════════════════════════
 function Scene3D({ gridX, gridY, typicalH, exceptions, maxBX, maxBY, volumes, selected, onSelect, onSelectElement, dwall, columns, beams, slabs, totalAbove, show }) {
   const ref = useRef();
-  const mo = useRef({ d:false, x:0, y:0 });
-  const rot = useRef({ t:Math.PI/4, p:Math.PI/5.5 });
-  const dist = useRef(1);
   const af = useRef(0);
   const meshMap = useRef({});
+  const controlsRef = useRef<any>(null);
+  const selectedMeshRef = useRef<any>(null);
+  const camStateRef = useRef<any>(null);            // 跨 re-render 保存相機位置
+  const tweenRef = useRef<any>(null);                // { posFrom, posTo, tgtFrom, tgtTo, t0, dur }
+  const initialFitRef = useRef<any>(null);           // { center, radius } 用於 reset
+  const [, forceRerender] = useState(0);        // 給 overlay 按鈕用
 
   useEffect(() => {
     const m = ref.current;
@@ -680,7 +684,7 @@ function Scene3D({ gridX, gridY, typicalH, exceptions, maxBX, maxBY, volumes, se
       });
     }
 
-    // Camera
+    // ─── 場景包圍球（用於 OrbitControls 距離限制與 reset）───
     const allTops = volumes.map(v => getVolumeElev(v, typicalH, exceptions).top);
     const allBottoms = volumes.map(v => getVolumeElev(v, typicalH, exceptions).bottom);
     const top = Math.max(...allTops, 0);
@@ -688,67 +692,203 @@ function Scene3D({ gridX, gridY, typicalH, exceptions, maxBX, maxBY, volumes, se
     const allH = top - bottom;
     const allW = Math.max(maxBX * gridX, maxBY * gridY);
     const mD = Math.max(allH, allW) || 30000;
-    dist.current = mD * 1.8;
-
     const cx0 = maxBX * gridX / 2, cz0 = maxBY * gridY / 2;
     const cy0 = (top + bottom) / 2;
+    initialFitRef.current = { center: new THREE.Vector3(cx0, cy0, cz0), radius: mD / 2 };
 
-    function uc() {
-      const r = dist.current, t = rot.current.t, p = rot.current.p;
-      cam.position.set(cx0 + r*Math.sin(p)*Math.cos(t), cy0 + r*Math.cos(p), cz0 + r*Math.sin(p)*Math.sin(t));
-      cam.lookAt(cx0, cy0, cz0);
+    // ─── OrbitControls ───
+    const controls = new OrbitControls(cam, ren.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.rotateSpeed = 0.7;
+    controls.zoomSpeed = 0.9;
+    controls.panSpeed = 0.8;
+    controls.screenSpacePanning = true;
+    controls.minDistance = mD * 0.05;
+    controls.maxDistance = mD * 8;
+    controls.maxPolarAngle = Math.PI - 0.05; // 允許從低角度看，但避免完全翻過去
+    controls.minPolarAngle = 0.05;
+    controls.target.set(cx0, cy0, cz0);
+
+    // 還原相機位置（如果之前存過），否則用預設視角
+    if (camStateRef.current) {
+      cam.position.copy(camStateRef.current.pos);
+      controls.target.copy(camStateRef.current.tgt);
+    } else {
+      const r0 = mD * 1.8, t0 = Math.PI/4, p0 = Math.PI/5.5;
+      cam.position.set(cx0 + r0*Math.sin(p0)*Math.cos(t0), cy0 + r0*Math.cos(p0), cz0 + r0*Math.sin(p0)*Math.sin(t0));
     }
-    function an() { af.current = requestAnimationFrame(an); uc(); ren.render(sc, cam); }
+    controls.update();
+    controlsRef.current = controls;
+
+    // 使用者開始操作 → 取消進行中的 zoom-fit tween
+    controls.addEventListener("start", () => { tweenRef.current = null; });
+
+    // ─── 動畫迴圈（含 zoom-fit tween）───
+    function easeInOutCubic(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2; }
+    function an() {
+      af.current = requestAnimationFrame(an);
+      const tw = tweenRef.current;
+      if (tw) {
+        const k = Math.min(1, (performance.now() - tw.t0) / tw.dur);
+        const e = easeInOutCubic(k);
+        cam.position.lerpVectors(tw.posFrom, tw.posTo, e);
+        controls.target.lerpVectors(tw.tgtFrom, tw.tgtTo, e);
+        if (k >= 1) tweenRef.current = null;
+      }
+      controls.update();
+      ren.render(sc, cam);
+    }
     an();
 
+    // ─── 點擊：選取 + 高亮 + 自動 zoom fit ───
     const cv = ren.domElement;
-    const oD = e => { mo.current = { d:true, x:e.clientX, y:e.clientY }; };
-    const oU = () => { mo.current.d = false; };
-    const oM = e => {
-      if (!mo.current.d) return;
-      rot.current.t -= (e.clientX - mo.current.x) * 0.005;
-      rot.current.p = Math.max(0.05, Math.min(Math.PI/2 - 0.05, rot.current.p - (e.clientY - mo.current.y) * 0.005));
-      mo.current.x = e.clientX; mo.current.y = e.clientY;
-    };
-    const oW = e => { e.preventDefault(); dist.current = Math.max(mD*0.3, Math.min(mD*6, dist.current + e.deltaY * mD * 0.001)); };
-
     const ray = new THREE.Raycaster(), m2 = new THREE.Vector2();
-    const oC = e => {
+    const downPos = { x:0, y:0, t:0 };
+    const oDown = e => { downPos.x = e.clientX; downPos.y = e.clientY; downPos.t = performance.now(); };
+
+    function highlightMesh(mesh) {
+      // 還原前一個
+      const prev = selectedMeshRef.current;
+      if (prev && prev !== mesh && prev.material && prev.userData._origEmissive !== undefined) {
+        prev.material.emissive.setHex(prev.userData._origEmissive);
+        prev.material.emissiveIntensity = prev.userData._origEmissiveIntensity ?? 0;
+        prev.userData._origEmissive = undefined;
+      }
+      // 高亮新的
+      if (mesh && mesh.material && mesh.material.emissive) {
+        if (mesh.userData._origEmissive === undefined) {
+          mesh.userData._origEmissive = mesh.material.emissive.getHex();
+          mesh.userData._origEmissiveIntensity = mesh.material.emissiveIntensity ?? 0;
+        }
+        mesh.material.emissive.setHex(0xffee00);
+        mesh.material.emissiveIntensity = 0.55;
+      }
+      selectedMeshRef.current = mesh;
+    }
+
+    function zoomFitMesh(mesh) {
+      const box = new THREE.Box3().setFromObject(mesh);
+      if (box.isEmpty()) return;
+      const sphere = new THREE.Sphere();
+      box.getBoundingSphere(sphere);
+      const fov = cam.fov * Math.PI / 180;
+      const aspect = cam.aspect || 1;
+      const fovEff = aspect < 1 ? 2 * Math.atan(Math.tan(fov/2) / aspect) : fov;
+      const distNew = (sphere.radius / Math.sin(fovEff / 2)) * 1.6; // 1.6 = padding
+      const dir = new THREE.Vector3().subVectors(cam.position, controls.target).normalize();
+      if (dir.lengthSq() < 1e-6) dir.set(0.5, 0.6, 0.5).normalize();
+      tweenRef.current = {
+        posFrom: cam.position.clone(),
+        posTo: sphere.center.clone().addScaledVector(dir, distNew),
+        tgtFrom: controls.target.clone(),
+        tgtTo: sphere.center.clone(),
+        t0: performance.now(),
+        dur: 450,
+      };
+    }
+
+    const oClick = e => {
+      // 過濾拖曳（移動超過 5px 視為 orbit/pan，不觸發選取）
+      const dx = e.clientX - downPos.x, dy = e.clientY - downPos.y;
+      if (dx*dx + dy*dy > 25) return;
+
       const r2 = cv.getBoundingClientRect();
       m2.x = ((e.clientX - r2.left) / r2.width) * 2 - 1;
       m2.y = -((e.clientY - r2.top) / r2.height) * 2 + 1;
       ray.setFromCamera(m2, cam);
-      // Collect all selectable meshes (anything with userData.info)
       const selectable = [];
-      sc.traverse(o => {
-        if (o.isMesh && o.userData?.info) selectable.push(o);
-      });
+      sc.traverse(o => { if (o.isMesh && o.userData?.info) selectable.push(o); });
       const its = ray.intersectObjects(selectable);
       if (its.length > 0) {
         const hit = its[0].object;
-        // Show element info
+        highlightMesh(hit);
+        zoomFitMesh(hit);
         if (onSelectElement) onSelectElement(hit.userData.info);
-        // If it's a volume, also update volume selection
         if (hit.userData.volumeId) onSelect(hit.userData.volumeId);
       }
     };
 
-    cv.addEventListener("mousedown", oD); cv.addEventListener("mouseup", oU);
-    cv.addEventListener("mousemove", oM); cv.addEventListener("wheel", oW, { passive:false });
-    cv.addEventListener("click", oC);
-    const oR = () => { cam.aspect = m.clientWidth/m.clientHeight; cam.updateProjectionMatrix(); ren.setSize(m.clientWidth, m.clientHeight); };
+    cv.addEventListener("mousedown", oDown);
+    cv.addEventListener("click", oClick);
+
+    const oR = () => {
+      cam.aspect = m.clientWidth/m.clientHeight;
+      cam.updateProjectionMatrix();
+      ren.setSize(m.clientWidth, m.clientHeight);
+    };
     window.addEventListener("resize", oR);
 
+    // 強制觸發一次 re-render 讓 overlay 按鈕能拿到 controlsRef
+    forceRerender(n => n + 1);
+
     return () => {
+      // 保存相機狀態跨 re-render
+      camStateRef.current = { pos: cam.position.clone(), tgt: controls.target.clone() };
       cancelAnimationFrame(af.current);
-      cv.removeEventListener("mousedown", oD); cv.removeEventListener("mouseup", oU);
-      cv.removeEventListener("mousemove", oM); cv.removeEventListener("wheel", oW);
-      cv.removeEventListener("click", oC); window.removeEventListener("resize", oR);
+      cv.removeEventListener("mousedown", oDown);
+      cv.removeEventListener("click", oClick);
+      window.removeEventListener("resize", oR);
+      controls.dispose();
+      controlsRef.current = null;
+      selectedMeshRef.current = null;
+      tweenRef.current = null;
       ren.dispose(); sc.clear();
     };
   }, [gridX, gridY, typicalH, exceptions, maxBX, maxBY, volumes, selected, dwall, columns, beams, slabs, totalAbove, show]);
 
-  return <div ref={ref} style={{ width:"100%", height:"100%", cursor:"grab" }} />;
+  // ─── overlay 按鈕：手動 zoom in / out / reset ───
+  function tweenTo(posTo, tgtTo, dur = 350) {
+    const c = controlsRef.current; if (!c) return;
+    tweenRef.current = {
+      posFrom: c.object.position.clone(),
+      posTo,
+      tgtFrom: c.target.clone(),
+      tgtTo,
+      t0: performance.now(),
+      dur,
+    };
+  }
+  const zoomBy = factor => {
+    const c = controlsRef.current; if (!c) return;
+    const dir = new THREE.Vector3().subVectors(c.object.position, c.target);
+    dir.multiplyScalar(factor);
+    tweenTo(c.target.clone().add(dir), c.target.clone(), 200);
+  };
+  const onZoomIn = () => zoomBy(0.7);
+  const onZoomOut = () => zoomBy(1.4);
+  const onReset = () => {
+    const c = controlsRef.current; const fit = initialFitRef.current; if (!c || !fit) return;
+    const fov = c.object.fov * Math.PI / 180;
+    const distNew = (fit.radius / Math.sin(fov / 2)) * 1.8;
+    const dir = new THREE.Vector3().subVectors(c.object.position, c.target).normalize();
+    if (dir.lengthSq() < 1e-6) dir.set(0.5, 0.6, 0.5).normalize();
+    tweenTo(fit.center.clone().addScaledVector(dir, distNew), fit.center.clone(), 450);
+    // 同時清掉選取高亮
+    const prev = selectedMeshRef.current;
+    if (prev && prev.material && prev.userData._origEmissive !== undefined) {
+      prev.material.emissive.setHex(prev.userData._origEmissive);
+      prev.material.emissiveIntensity = prev.userData._origEmissiveIntensity ?? 0;
+      prev.userData._origEmissive = undefined;
+    }
+    selectedMeshRef.current = null;
+  };
+
+  const btn: React.CSSProperties = {
+    width: 32, height: 32, background: "rgba(20,28,42,.92)", color: "#aaccee",
+    border: "1px solid #2a4455", borderRadius: 4, cursor: "pointer",
+    fontSize: 14, fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center",
+  };
+
+  return (
+    <div ref={ref} style={{ width:"100%", height:"100%", cursor:"grab", position:"relative" }}>
+      <div style={{ position:"absolute", top:8, right:8, zIndex:10, display:"flex", flexDirection:"column", gap:4 }}>
+        <button title="放大 (Zoom in)" style={btn} onClick={onZoomIn}>＋</button>
+        <button title="縮小 (Zoom out)" style={btn} onClick={onZoomOut}>−</button>
+        <button title="重設視角 (Reset view)" style={btn} onClick={onReset}>⌂</button>
+      </div>
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════
