@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { downloadDesignJson } from "../lib/exportDesign";
 
 const COLORS = ["#3b6ea5","#5a8c5a","#a5783b","#8b5aa5","#a53b5e","#3ba5a5","#7a7a3b","#5a3b8b"];
 const TYPES = [
@@ -1204,6 +1205,23 @@ export default function App() {
     setSelId(id);
   };
 
+  const handleExport = () => {
+    downloadDesignJson({
+      project: { name: "Untitled", location, structureSystem: "RC" },
+      designParams: {
+        windV: windZone.v,
+        windZone: windZone.label,
+        SDS: seismicSDS,
+        SD1: seismicSD1,
+        importance: 1.0,
+        siteClass: 2,
+        seismicLevel: "中等",
+      },
+      geometry: { gridX, gridY, maxBX, maxBY, typicalH, exceptions, totalAbove },
+      volumes, columns, beams, slabs, dwall, families,
+    });
+  };
+
   const tabBtn = (id, label) => (
     <button onClick={() => setActiveTab(id)} style={{
       flex:1, padding:"5px 4px", border:"none", cursor:"pointer", fontSize:10, fontWeight:600,
@@ -1227,8 +1245,14 @@ export default function App() {
       background:"#0d0d18", color:"#e0e0e0", fontFamily:"'SF Mono','Noto Sans TC',monospace", overflow:"hidden",
     }}>
       <div style={{ borderRight:"1px solid #1e1e33", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-        <div style={{ padding:"8px 10px", background:"#151528", borderBottom:"1px solid #1e1e33", fontSize:13, fontWeight:700, color:"#88ccaa", letterSpacing:1 }}>
-          🧊 量體 + 結構系統 v4
+        <div style={{ padding:"6px 10px", background:"#151528", borderBottom:"1px solid #1e1e33", display:"flex", alignItems:"center", justifyContent:"space-between", gap:6 }}>
+          <span style={{ fontSize:13, fontWeight:700, color:"#88ccaa", letterSpacing:1 }}>
+            🧊 量體 + 結構系統 v4
+          </span>
+          <button onClick={handleExport} title="匯出 design.json（給 calc-engine / pyRevit 用）" style={{
+            padding:"4px 10px", border:"1px solid #2a4455", borderRadius:3, cursor:"pointer",
+            fontSize:10, fontWeight:600, background:"#1a3344", color:"#88ccee",
+          }}>📥 匯出</button>
         </div>
         <div style={{ display:"flex", borderBottom:"1px solid #1e1e33" }}>
           {tabBtn("volumes","量體")}

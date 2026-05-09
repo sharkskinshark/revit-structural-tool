@@ -1,0 +1,132 @@
+{
+  "schema_version": "1.0",
+  "exported_at": "2026-05-09T20:00:00+08:00",
+  "exported_by": "test-fixture@1.0",
+
+  "project": {
+    "name": "Tiny Test Building",
+    "location": "臺北市",
+    "structure_system": "RC"
+  },
+
+  "design_params": {
+    "wind_v_ms": 42.5,
+    "wind_zone": "強風區 42.5 m/s",
+    "SDS": 0.66,
+    "SD1": 0.385,
+    "importance": 1.0,
+    "site_class": 2,
+    "seismic_level": "中等"
+  },
+
+  "geometry": {
+    "grid_x_mm": 8000,
+    "grid_y_mm": 7000,
+    "max_bx": 2,
+    "max_by": 2,
+    "typical_height_mm": 3300,
+    "floor_exceptions": [],
+    "levels": [
+      { "name": "B1F", "elevation_mm": -3300, "height_mm": 3300, "floor": -1 },
+      { "name": "1F",  "elevation_mm": 0,     "height_mm": 3300, "floor": 1 },
+      { "name": "2F",  "elevation_mm": 3300,  "height_mm": 3300, "floor": 2 }
+    ],
+    "total_floors_above": 2,
+    "total_floors_below": 1
+  },
+
+  "volumes": [
+    { "id": 1, "name": "地下室", "type": "basement", "use_type": "parking",
+      "start_floor": -1, "end_floor": 0,
+      "x1": 0, "x2": 2, "y1": 0, "y2": 2 },
+    { "id": 2, "name": "裙樓", "type": "podium", "use_type": "commercial",
+      "start_floor": 1, "end_floor": 2,
+      "x1": 0, "x2": 2, "y1": 0, "y2": 2 },
+    { "id": 3, "name": "服務核", "type": "core", "use_type": "core",
+      "start_floor": -1, "end_floor": 2,
+      "x1": 1, "x2": 2, "y1": 1, "y2": 2 }
+  ],
+
+  "structure": {
+    "columns": [
+      { "grid": "A1", "i": 0, "j": 0, "floor": -1,
+        "width_mm": 700, "depth_mm": 700, "height_mm": 3300,
+        "fc": 350, "fy": 4200, "family_type": "RC-C-700×700-fc350",
+        "fire_rating_hr": 3, "in_core": false },
+      { "grid": "A1", "i": 0, "j": 0, "floor": 1,
+        "width_mm": 700, "depth_mm": 700, "height_mm": 3300,
+        "fc": 350, "fy": 4200, "family_type": "RC-C-700×700-fc350",
+        "fire_rating_hr": 1, "in_core": false },
+      { "grid": "A1", "i": 0, "j": 0, "floor": 2,
+        "width_mm": 700, "depth_mm": 700, "height_mm": 3300,
+        "fc": 350, "fy": 4200, "family_type": "RC-C-700×700-fc350",
+        "fire_rating_hr": 1, "in_core": false }
+    ],
+
+    "beams": [
+      { "dir": "X", "i": 0, "j": 0, "floor": 1, "elev_mm": 3300,
+        "span_mm": 8000, "B_mm": 400, "D_mm": 650, "fc": 280, "fy": 4200,
+        "family_type": "RC-MB-400×650", "fire_rating_hr": 1, "vol_type": "podium" },
+      { "dir": "Y", "i": 0, "j": 0, "floor": 1, "elev_mm": 3300,
+        "span_mm": 7000, "B_mm": 350, "D_mm": 600, "fc": 280, "fy": 4200,
+        "family_type": "RC-MB-350×600", "fire_rating_hr": 1, "vol_type": "podium" }
+    ],
+
+    "slabs": [
+      { "floor": 1, "elev_mm": 3300,
+        "x1": 0, "x2": 2, "y1": 0, "y2": 2,
+        "area_m2": 224.0,
+        "struct_thickness_mm": 150, "sound_layer_mm": 68, "total_thickness_mm": 218,
+        "fc": 280, "use_type": "商業", "family_type": "RC-Slab-150-SI68",
+        "fire_rating_hr": 1, "vol_type": "podium" },
+      { "floor": 2, "elev_mm": 6600,
+        "x1": 0, "x2": 2, "y1": 0, "y2": 2,
+        "area_m2": 224.0,
+        "struct_thickness_mm": 150, "sound_layer_mm": 68, "total_thickness_mm": 218,
+        "fc": 280, "use_type": "商業", "family_type": "RC-Slab-150-SI68",
+        "fire_rating_hr": 1, "vol_type": "podium" }
+    ],
+
+    "shear_walls": [
+      { "core_volume_id": 3, "floor": 1, "face": "north",
+        "length_mm": 8000, "height_mm": 3300, "thickness_mm": 300,
+        "fc": 280, "fy": 4200, "family_type": "RC-SW-300", "fire_rating_hr": 1 },
+      { "core_volume_id": 3, "floor": 1, "face": "south",
+        "length_mm": 8000, "height_mm": 3300, "thickness_mm": 300,
+        "fc": 280, "fy": 4200, "family_type": "RC-SW-300", "fire_rating_hr": 1 },
+      { "core_volume_id": 3, "floor": 1, "face": "west",
+        "length_mm": 6400, "height_mm": 3300, "thickness_mm": 300,
+        "fc": 280, "fy": 4200, "family_type": "RC-SW-300", "fire_rating_hr": 1 },
+      { "core_volume_id": 3, "floor": 1, "face": "east",
+        "length_mm": 6400, "height_mm": 3300, "thickness_mm": 300,
+        "fc": 280, "fy": 4200, "family_type": "RC-SW-300", "fire_rating_hr": 1 }
+    ],
+
+    "diaphragm_wall": {
+      "perimeter_mm": 60000,
+      "depth_mm": 4800, "depth_m": 4.8,
+      "thickness_mm": 600,
+      "fc": 280, "family_type": "RC-DW-600",
+      "x1": 0, "x2": 2, "y1": 0, "y2": 2,
+      "min_floor": -1,
+      "note": "淺開挖，單層支撐"
+    }
+  },
+
+  "family_inventory": {
+    "columns": [
+      { "type": "RC-C-700×700-fc350", "count": 3, "width_mm": 700, "depth_mm": 700, "fc": 350 }
+    ],
+    "beams": [
+      { "type": "RC-MB-400×650", "count": 1, "B_mm": 400, "D_mm": 650 },
+      { "type": "RC-MB-350×600", "count": 1, "B_mm": 350, "D_mm": 600 }
+    ],
+    "slabs": [
+      { "type": "RC-Slab-150-SI68", "count": 2, "struct_thickness_mm": 150, "sound_layer_mm": 68 }
+    ],
+    "walls": [
+      { "type": "RC-DW-600", "count": 1, "thickness_mm": 600, "role": "連續壁" },
+      { "type": "RC-SW-300", "count": 4, "thickness_mm": 300, "role": "服務核剪力牆" }
+    ]
+  }
+}
