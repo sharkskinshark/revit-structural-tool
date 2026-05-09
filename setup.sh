@@ -21,11 +21,16 @@ if ! command -v node &> /dev/null; then
 fi
 echo "  ✓ Node.js: $(node --version)"
 
-if ! command -v python3 &> /dev/null; then
-    echo "  ✗ 找不到 Python3，請先安裝 Python ≥ 3.10"
+# macOS/Linux 用 python3；Windows (Git Bash / Cygwin) 通常只有 python
+if command -v python3 &> /dev/null; then
+    PY=python3
+elif command -v python &> /dev/null; then
+    PY=python
+else
+    echo "  ✗ 找不到 Python，請先安裝 Python ≥ 3.10"
     exit 1
 fi
-echo "  ✓ Python: $(python3 --version)"
+echo "  ✓ Python: $($PY --version)"
 
 # ─── 前端設置 ───
 echo ""
@@ -40,12 +45,18 @@ echo "▸ 設置計算引擎..."
 cd "$PROJECT_ROOT/calc-engine"
 
 if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+    $PY -m venv .venv
     echo "  ✓ Created venv"
 fi
 
-source .venv/bin/activate
-pip install --upgrade pip --quiet
+# Windows venv 結構是 .venv/Scripts，Unix 是 .venv/bin
+if [ -f ".venv/Scripts/activate" ]; then
+    source .venv/Scripts/activate
+else
+    source .venv/bin/activate
+fi
+# Windows 需要 `python -m pip` 才能自我升級
+python -m pip install --upgrade pip --quiet
 pip install -e ".[dev]" --quiet
 echo "  ✓ Calc engine installed"
 

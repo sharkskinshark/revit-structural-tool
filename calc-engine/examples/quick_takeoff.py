@@ -8,6 +8,10 @@ Run from calc-engine/:
 import sys
 from pathlib import Path
 
+# Windows console 預設 cp950 不支援 ³ 噸 坪 等字元
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 # Add src to path for direct execution
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
