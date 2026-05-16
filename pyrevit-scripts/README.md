@@ -65,13 +65,24 @@
 - **Transaction 包覆**：所有變更在單一 Transaction 內，失敗自動 rollback
 - **Family Library**：建議準備 RC 柱、梁、板的 base family 在統一資料夾
 
-## 開發中
+## 開發進度
 
-目前的腳本是骨架，需要 Claude Code 進一步實作：
-- [ ] 完整 grids 建立（含 X/Y 標籤）
-- [ ] Column Family duplication 與參數設定
-- [ ] Beam 沿 grid 線放置邏輯
-- [ ] Slab 邊界 sketch
-- [ ] Wall 牆型與位置
-- [ ] Material 設定（fc'、fy）
+`02_generate_structure.py` 已接通 design.json schema 1.0：
+
+- [x] 讀取 design.json + schema 版本檢查 + 欄位驗證
+- [x] 完整 grids 建立（X 軸字母 A/B/C…，Y 軸數字 1/2/3…）
+- [x] Levels 建立（geometry.levels，同名共用不重複）
+- [x] Column Family duplication 與 b/h 參數設定
+- [x] 柱實例放置（格點交點、逐樓層、設定 top level）
+- [x] 單一 Transaction 包覆 + 失敗 rollback
+- [ ] Beam 沿 grid 線放置邏輯（sketch-based，後續）
+- [ ] Slab 邊界 sketch（後續）
+- [ ] Wall / 連續壁 牆型與位置（後續）
+- [ ] Material 設定（fc'、fy）— 目前 fc' 僅寫入 type comment
 - [ ] Fire rating 參數寫入 type
+
+### 執行前準備
+
+`02_generate_structure.py` 需要專案中**已載入至少一個矩形結構柱 family**
+（例如 `M_Concrete-Rectangular Column`）作為 duplicate 的 base。
+腳本會依 family_inventory 複製出 `RC-C-700×700-fc350` 等類型並設定斷面。
