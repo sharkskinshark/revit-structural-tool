@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .quantity import QuantityTakeoff, ConcreteByFc, RebarSummary
+from .quantity import QuantityTakeoff, ConcreteByFc, RebarSummary, StructuralModel
 
 
 # Default prices (NTD) - sync with data/prices.json
@@ -125,6 +125,35 @@ def estimate_cost(
     breakdown.formwork = formwork_area_m2 * p['formwork_per_m2']
 
     return breakdown
+
+
+def formwork_area(model: StructuralModel) -> float:
+    """Total formwork area in m² (sum of cast-against-form surfaces).
+
+    Per-member rules (mm based, returned in m²):
+      - Column:        perimeter × height          (lateral; top/bottom shared with slab)
+      - Beam:          (B + 2D) × span             (bottom + 2 sides; top cast with slab)
+      - Slab:          area                        (bottom only; top is finish)
+      - Shear wall:    2 × length × height         (both faces; interior wall)
+      - Diaphragm wall: perimeter × depth          (inner face only; outer cast against soil)
+
+    Note: This is design-phase estimate. Actual formwork includes corners,
+    openings, edge beams, ramps, etc. — usually 5-15% higher.
+    """
+    total_mm2 = 0.0
+    for c in model.columns:
+        total_mm2 += 2 * (c.width + c.depth) * c.height
+    for b in model.beams:
+        total_mm2 += (b.width + 2 * b.depth) * b.span
+    for sw in model.shear_walls:
+        total_mm2 += 2 * sw.length * sw.height
+    for dw in model.diaphragm_walls:
+        total_mm2 += dw.perimeter * dw.depth
+
+    # Slab area is already in m² in our model
+    slab_area_m2 = sum(s.area for s in model.slabs)
+
+    return total_mm2 / 1e6 + slab_area_m2
 
 
 def cost_per_floor_area(

@@ -19,8 +19,9 @@ from struct_calc.quantity import (
     Column, Beam, Slab, ShearWall, DiaphragmWall,
     StructuralModel, takeoff,
 )
-from struct_calc.cost import estimate_cost, cost_per_floor_area
-from struct_calc.report import export_excel, export_json
+from struct_calc.cost import estimate_cost, cost_per_floor_area, formwork_area
+from struct_calc.scwb import check_scwb
+from struct_calc.report import export_excel, export_json, export_pdf
 
 
 def main():
@@ -107,7 +108,7 @@ def main():
     cost = estimate_cost(
         qto,
         diaphragm_wall_volume_m3=qto.concrete_by_member['diaphragm_walls'].total,
-        formwork_area_m2=qto.concrete_total_m3 * 6,  # rough estimate
+        formwork_area_m2=formwork_area(model),
     )
 
     print(f"\n{'='*50}")
@@ -144,12 +145,27 @@ def main():
         '樓板': [{'type': 'RC-Slab-150-SI68', 'count': 17, 'note': '住宅含§46-6'}],
     }
 
+    # 強柱弱梁檢核
+    scwb = check_scwb(model)
+    print(f"\n{'='*50}")
+    print("強柱弱梁檢核:")
+    print(f"{'='*50}")
+    print(f"  接頭 {scwb.total}｜通過 {scwb.passing}｜"
+          f"未通過 {scwb.failing}｜通過率 {scwb.pass_rate*100:.1f}%")
+
     try:
         excel_path = export_excel(qto, cost, project_info, family_inventory,
-                                  out_dir / 'design_report.xlsx')
+                                  out_dir / 'design_report.xlsx', scwb_summary=scwb)
         print(f"\n✓ Excel saved: {excel_path}")
     except ImportError as e:
         print(f"\n⚠ Skipping Excel: {e}")
+
+    try:
+        pdf_path = export_pdf(qto, cost, project_info,
+                              out_dir / 'design_report.pdf', scwb_summary=scwb)
+        print(f"✓ PDF saved: {pdf_path}")
+    except ImportError as e:
+        print(f"⚠ Skipping PDF: {e}")
 
     json_path = export_json(qto, cost, project_info, out_dir / 'design.json')
     print(f"✓ JSON saved: {json_path}")

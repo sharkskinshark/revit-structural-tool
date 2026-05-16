@@ -27,8 +27,9 @@ from struct_calc.from_json import (
     SchemaVersionError,
 )
 from struct_calc.quantity import takeoff
-from struct_calc.cost import estimate_cost, cost_per_floor_area
-from struct_calc.report import export_excel, export_json
+from struct_calc.cost import estimate_cost, cost_per_floor_area, formwork_area
+from struct_calc.scwb import check_scwb
+from struct_calc.report import export_excel, export_json, export_pdf
 
 
 def main(input_path: str = 'output/design.json') -> int:
@@ -86,7 +87,7 @@ def main(input_path: str = 'output/design.json') -> int:
     cost = estimate_cost(
         qto,
         diaphragm_wall_volume_m3=qto.concrete_by_member['diaphragm_walls'].total,
-        formwork_area_m2=qto.concrete_total_m3 * 6,  # rough estimate
+        formwork_area_m2=formwork_area(model),
     )
 
     print(f"\n{'=' * 50}")
@@ -101,6 +102,20 @@ def main(input_path: str = 'output/design.json') -> int:
         print(f"\n單位造價: NT${per['per_m2']:,.0f}/m² "
               f"(NT${per['per_ping']:,.0f}/坪)")
 
+    # ── 強柱弱梁檢核 ──
+    print(f"\n{'=' * 50}")
+    print("強柱弱梁檢核 (ΣMnc ≥ 6/5 ΣMnb):")
+    print(f"{'=' * 50}")
+    scwb = check_scwb(model)
+    print(f"  接頭總數: {scwb.total}")
+    print(f"  通過:     {scwb.passing}")
+    print(f"  未通過:   {scwb.failing}")
+    print(f"  通過率:   {scwb.pass_rate * 100:.1f}%")
+    if scwb.failing_floors:
+        print(f"  ⚠ 未通過樓層: "
+              f"{', '.join(str(f) for f in scwb.failing_floors)}")
+    print("  ※ 設計初期粗估，不替代結構技師簽證")
+
     # ── 匯出報表 ──
     out_dir = in_path.parent
     out_dir.mkdir(exist_ok=True)
@@ -108,10 +123,17 @@ def main(input_path: str = 'output/design.json') -> int:
     family_inv = family_inventory_from_design(design)
     excel_path = out_dir / 'design_report.xlsx'
     try:
-        export_excel(qto, cost, proj, family_inv, excel_path)
+        export_excel(qto, cost, proj, family_inv, excel_path, scwb_summary=scwb)
         print(f"\n✓ Excel: {excel_path}")
     except ImportError as e:
         print(f"\n⚠ 略過 Excel ({e})")
+
+    pdf_path = out_dir / 'design_report.pdf'
+    try:
+        export_pdf(qto, cost, proj, pdf_path, scwb_summary=scwb)
+        print(f"✓ PDF:   {pdf_path}")
+    except ImportError as e:
+        print(f"⚠ 略過 PDF ({e})")
 
     summary_path = out_dir / 'design_summary.json'
     export_json(qto, cost, proj, summary_path)

@@ -25,6 +25,20 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (
+        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
+    )
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    HAS_REPORTLAB = True
+except ImportError:
+    HAS_REPORTLAB = False
+
 from .quantity import QuantityTakeoff, StructuralModel
 from .cost import CostBreakdown
 
@@ -82,9 +96,13 @@ def export_excel(
     project_info: dict,
     family_inventory: dict,
     output_path: Path,
+    scwb_summary=None,
 ) -> Path:
     """
     Export complete report to multi-sheet Excel.
+
+    Args:
+        scwb_summary: optional SCWBSummary — adds Sheet 6 (強柱弱梁檢核)
     """
     if not HAS_OPENPYXL:
         raise ImportError("openpyxl is required for Excel export. Install: pip install openpyxl")
@@ -99,6 +117,8 @@ def export_excel(
     _build_rebar_sheet(wb, takeoff)
     _build_family_sheet(wb, family_inventory)
     _build_cost_sheet(wb, cost, project_info.get('total_floor_area_m2', 0))
+    if scwb_summary is not None:
+        _build_scwb_sheet(wb, scwb_summary)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -304,3 +324,237 @@ def _build_cost_sheet(wb, cost: CostBreakdown, total_floor_area_m2: float):
 
     for i, w in enumerate([15, 25, 18, 10], start=1):
         ws.column_dimensions[chr(64 + i)].width = w
+
+
+def _build_scwb_sheet(wb, scwb):
+    """Sheet 6: 強柱弱梁 (SCWB) check."""
+    ws = wb.create_sheet('6_強柱弱梁檢核')
+
+    ws['A1'] = '強柱弱梁檢核 (ΣMnc ≥ 6/5 ΣMnb)'
+    ws['A1'].font = TITLE_FONT
+
+    ws['A3'] = '※ 設計初期粗估：純彎曲 Mn，假設配筋率（柱2.5% / 梁1.8%），未計軸力'
+    ws['A3'].font = Font(italic=True, color='AA6644')
+    ws['A4'] = '※ 不替代結構技師正式 interaction-diagram 分析與簽證'
+    ws['A4'].font = Font(italic=True, color='AA6644')
+
+    # Summary block
+    summary = [
+        ('總接頭數', scwb.total),
+        ('通過', scwb.passing),
+        ('未通過', scwb.failing),
+        ('通過率', f'{scwb.pass_rate * 100:.1f}%'),
+        ('未通過樓層', ', '.join(str(f) for f in scwb.failing_floors) or '無'),
+    ]
+    for i, (label, value) in enumerate(summary, start=6):
+        ws.cell(row=i, column=1, value=label).font = Font(bold=True)
+        ws.cell(row=i, column=2, value=value)
+
+    # Per-joint table
+    header_row = 12
+    headers = ['格點', '樓層', 'ΣMnc (kN·m)', 'ΣMnb (kN·m)', '比值', '判定']
+    for col, h in enumerate(headers, start=1):
+        ws.cell(row=header_row, column=col, value=h)
+    _style_header(ws, header_row, len(headers))
+
+    row = header_row + 1
+    for j in scwb.joints:
+        ws.cell(row=row, column=1, value=j.grid)
+        ws.cell(row=row, column=2, value=j.floor)
+        ws.cell(row=row, column=3, value=round(j.sum_Mnc_kNm, 1)).number_format = NUMBER_FORMAT
+        ws.cell(row=row, column=4, value=round(j.sum_Mnb_kNm, 1)).number_format = NUMBER_FORMAT
+        ratio_cell = ws.cell(row=row, column=5,
+                             value=(round(j.ratio, 3) if j.ratio != float('inf') else '∞'))
+        verdict = ws.cell(row=row, column=6, value='✓ 通過' if j.passes else '✗ 未通過')
+        if not j.passes:
+            for col in range(1, 7):
+                ws.cell(row=row, column=col).fill = PatternFill('solid', fgColor='FFC7CE')
+        else:
+            verdict.font = Font(color='008000')
+        row += 1
+
+    for i, w in enumerate([10, 8, 16, 16, 10, 12], start=1):
+        ws.column_dimensions[chr(64 + i)].width = w
+
+
+# ═══════════════════════════════════════════════════════
+# PDF EXPORT
+# ═══════════════════════════════════════════════════════
+
+# Traditional-Chinese CID font shipped with reportlab (Adobe-CNS1)
+_CJK_FONT = 'MSung-Light'
+_cjk_registered = False
+
+
+def _ensure_cjk_font():
+    """Register the built-in Traditional-Chinese CID font once."""
+    global _cjk_registered
+    if not _cjk_registered:
+        pdfmetrics.registerFont(UnicodeCIDFont(_CJK_FONT))
+        _cjk_registered = True
+
+
+def _pdf_styles():
+    """Build paragraph styles using the CJK font."""
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle('CJKTitle', parent=styles['Title'],
+                           fontName=_CJK_FONT, fontSize=18, spaceAfter=6)
+    heading = ParagraphStyle('CJKHeading', parent=styles['Heading2'],
+                              fontName=_CJK_FONT, fontSize=13, spaceBefore=12, spaceAfter=4)
+    body = ParagraphStyle('CJKBody', parent=styles['Normal'],
+                           fontName=_CJK_FONT, fontSize=9, leading=13)
+    note = ParagraphStyle('CJKNote', parent=body, fontSize=8,
+                           textColor=colors.HexColor('#AA6644'))
+    return {'title': title, 'heading': heading, 'body': body, 'note': note}
+
+
+def _pdf_table(data, col_widths=None, highlight_rows=None):
+    """Build a styled reportlab Table. Row 0 is the header."""
+    t = Table(data, colWidths=col_widths)
+    style = [
+        ('FONTNAME', (0, 0), (-1, -1), _CJK_FONT),
+        ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#BBBBBB')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F2F2F2')]),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]
+    for r in (highlight_rows or []):
+        style.append(('BACKGROUND', (0, r), (-1, r), colors.HexColor('#FFC7CE')))
+    t.setStyle(TableStyle(style))
+    return t
+
+
+def export_pdf(
+    takeoff: QuantityTakeoff,
+    cost: CostBreakdown,
+    project_info: dict,
+    output_path: Path,
+    scwb_summary=None,
+) -> Path:
+    """Export a summary PDF report (A4, Traditional Chinese).
+
+    Args:
+        scwb_summary: optional SCWBSummary — adds a 強柱弱梁 section
+    """
+    if not HAS_REPORTLAB:
+        raise ImportError(
+            "reportlab is required for PDF export. Install: pip install reportlab")
+
+    _ensure_cjk_font()
+    st = _pdf_styles()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    doc = SimpleDocTemplate(
+        str(output_path), pagesize=A4,
+        topMargin=18 * mm, bottomMargin=18 * mm,
+        leftMargin=18 * mm, rightMargin=18 * mm,
+        title='結構設計初步報告',
+    )
+    flow = []
+
+    # ── Title ──
+    flow.append(Paragraph('結構設計初步報告', st['title']))
+    flow.append(Paragraph(
+        '設計初期用量、造價與耐震粗估 — 不替代結構技師正式計算與簽證', st['note']))
+    flow.append(Spacer(1, 8))
+
+    # ── 1. Project overview ──
+    flow.append(Paragraph('1　專案資訊', st['heading']))
+    ov = [
+        ['項目', '內容'],
+        ['專案名稱', str(project_info.get('project_name', ''))],
+        ['工址位置', str(project_info.get('location', ''))],
+        ['結構系統', str(project_info.get('structure_system', 'RC'))],
+        ['地上樓層', str(project_info.get('total_floors', ''))],
+        ['總高度 (m)', str(project_info.get('total_height_m', ''))],
+        ['總樓地板 (m²)', f"{project_info.get('total_floor_area_m2', 0):,.0f}"],
+        ['設計風速 (m/s)', str(project_info.get('design_wind_speed', ''))],
+        ['SDS / SD1', f"{project_info.get('SDS', '')} / {project_info.get('SD1', '')}"],
+    ]
+    flow.append(_pdf_table(ov, col_widths=[55 * mm, 110 * mm]))
+
+    # ── 2. Concrete ──
+    flow.append(Paragraph('2　混凝土用量 (m³)', st['heading']))
+    by_fc = takeoff.concrete_by_fc
+    conc = [['fc\' 強度', '體積 (m³)']]
+    for fc_key in ('fc_210', 'fc_245', 'fc_280', 'fc_350', 'fc_420'):
+        conc.append([fc_key.replace('fc_', "fc'="), f"{getattr(by_fc, fc_key):,.1f}"])
+    conc.append(['總計', f"{by_fc.total:,.1f}"])
+    flow.append(_pdf_table(conc, col_widths=[55 * mm, 55 * mm]))
+
+    # ── 3. Rebar ──
+    flow.append(Paragraph('3　鋼筋用量 (噸)', st['heading']))
+    rb = takeoff.rebar
+    rebar = [
+        ['構件', '鋼筋 (噸)'],
+        ['柱', f'{rb.columns:,.1f}'],
+        ['大梁', f'{rb.main_beams:,.1f}'],
+        ['樓板', f'{rb.slabs:,.1f}'],
+        ['剪力牆', f'{rb.shear_walls:,.1f}'],
+        ['連續壁', f'{rb.diaphragm_walls:,.1f}'],
+        ['總計', f'{rb.total:,.1f}'],
+    ]
+    flow.append(_pdf_table(rebar, col_widths=[55 * mm, 55 * mm]))
+    density = takeoff.rebar_density_kg_m3
+    note = f'平均鋼筋密度：{density:,.1f} kg/m³（典型 RC 高層 120–180 kg/m³）'
+    if density < 120:
+        note += ' ⚠ 偏低'
+    elif density > 180:
+        note += ' ⚠ 偏高'
+    flow.append(Spacer(1, 3))
+    flow.append(Paragraph(note, st['note']))
+
+    # ── 4. Cost ──
+    flow.append(Paragraph('4　造價估算 (NTD)', st['heading']))
+    cd = cost.to_dict()
+    cost_rows = [['項目', '金額 (NTD)']]
+    for label, key in [('混凝土', 'concrete_total'), ('鋼筋', 'rebar'),
+                       ('鋼骨', 'steel'), ('連續壁', 'diaphragm_wall'),
+                       ('模板', 'formwork')]:
+        cost_rows.append([label, f"{cd[key]:,.0f}"])
+    cost_rows.append(['合計', f"{cd['grand_total']:,.0f}"])
+    flow.append(_pdf_table(cost_rows, col_widths=[55 * mm, 55 * mm]))
+    area = project_info.get('total_floor_area_m2', 0)
+    if area > 0:
+        per_m2 = cost.grand_total / area
+        flow.append(Spacer(1, 3))
+        flow.append(Paragraph(
+            f'單位造價：NT$ {per_m2:,.0f}/m²（NT$ {per_m2 * 3.30578:,.0f}/坪）',
+            st['note']))
+
+    # ── 5. SCWB ──
+    if scwb_summary is not None:
+        flow.append(Paragraph('5　強柱弱梁檢核 (ΣMnc ≥ 6/5 ΣMnb)', st['heading']))
+        s = scwb_summary
+        flow.append(Paragraph(
+            f'總接頭 {s.total}　通過 {s.passing}　未通過 {s.failing}　'
+            f'通過率 {s.pass_rate * 100:.1f}%', st['body']))
+        if s.failing_floors:
+            flow.append(Paragraph(
+                '未通過樓層：' + ', '.join(str(f) for f in s.failing_floors),
+                st['note']))
+        # Show only failing joints (or first 20 if all pass)
+        failing = [j for j in s.joints if not j.passes]
+        show = failing if failing else s.joints[:20]
+        if show:
+            jt = [['格點', '樓層', 'ΣMnc', 'ΣMnb', '比值', '判定']]
+            for j in show:
+                ratio = '∞' if j.ratio == float('inf') else f'{j.ratio:.2f}'
+                jt.append([j.grid, str(j.floor), f'{j.sum_Mnc_kNm:,.0f}',
+                           f'{j.sum_Mnb_kNm:,.0f}', ratio,
+                           '✓' if j.passes else '✗'])
+            hl = [i + 1 for i, j in enumerate(show) if not j.passes]
+            flow.append(Spacer(1, 3))
+            flow.append(_pdf_table(jt, highlight_rows=hl))
+        flow.append(Spacer(1, 3))
+        flow.append(Paragraph(
+            '※ 設計初期粗估：純彎曲 Mn、假設配筋率、未計軸力，'
+            '不替代結構技師簽證', st['note']))
+
+    doc.build(flow)
+    return output_path
