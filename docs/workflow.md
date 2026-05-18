@@ -108,7 +108,7 @@ python examples/quick_takeoff.py
 
 ### 執行 pyRevit 腳本
 ```
-1. 開啟 Revit 2023+
+1. 開啟 Revit 2025
 2. pyRevit ribbon → 選擇 script
 3. 或從 PyRevit Console:
    from pyrevit_scripts.scripts import 01_read_project

@@ -58,7 +58,7 @@ revit-structural-tool/
 ### 前提需求
 - Node.js ≥ 18
 - Python ≥ 3.10
-- Revit 2023+ (供 pyRevit 整合)
+- Revit 2025 (供 pyRevit 整合；API 相容 2023+)
 - pyRevit (https://pyrevit.com)
 
 ### 1. 安裝前端
