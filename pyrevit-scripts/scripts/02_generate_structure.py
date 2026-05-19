@@ -54,11 +54,53 @@ def mm_to_ft(mm):
     return mm * MM_TO_FT
 
 
-def load_design(path='output/design.json'):
-    """Load design.json and verify the schema major version."""
-    if not os.path.exists(path):
-        forms.alert('找不到 design.json，請先從前端工具點「匯出」產生，'
-                    '並放到 {0}'.format(path), exitscript=True)
+def _candidate_design_paths():
+    """Candidate locations for design.json, in priority order.
+
+    Revit 的工作目錄不固定，所以不能只靠 'output/design.json' 相對路徑。
+    """
+    candidates = ['output/design.json']
+
+    # 相對於本腳本的 repo 根目錄： pyrevit-scripts/scripts/.. /.. /output
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        repo_root = os.path.abspath(os.path.join(here, '..', '..'))
+        candidates.append(os.path.join(repo_root, 'output', 'design.json'))
+    except Exception:
+        pass
+
+    # 與目前 .rvt 檔同一資料夾
+    try:
+        rvt = revit.doc.PathName
+        if rvt:
+            rvt_dir = os.path.dirname(rvt)
+            candidates.append(os.path.join(rvt_dir, 'design.json'))
+            candidates.append(os.path.join(rvt_dir, 'output', 'design.json'))
+    except Exception:
+        pass
+
+    return candidates
+
+
+def load_design():
+    """Locate + load design.json; verify schema major version.
+
+    依序嘗試已知位置，全部找不到時跳檔案選擇對話框讓使用者瀏覽。
+    """
+    path = None
+    for c in _candidate_design_paths():
+        if c and os.path.exists(c):
+            path = c
+            break
+
+    if path is None:
+        path = forms.pick_file(file_ext='json',
+                               title='找不到 design.json — 請選擇 (schema 1.0)')
+        if not path:
+            forms.alert('未選擇 design.json，已取消。', exitscript=True)
+
+    print('使用設計檔: {0}'.format(path))
+
     with io.open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
