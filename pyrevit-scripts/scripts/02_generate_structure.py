@@ -220,10 +220,18 @@ def create_grids(doc, geometry):
 # ═══════════════════════════════════════════════════════
 
 def find_base_column_symbol(doc):
-    """Find a structural-column FamilySymbol to use as the duplication base.
+    """Find a CONCRETE rectangular structural-column FamilySymbol as the
+    duplication base.
 
-    Prefers a name containing 'Concrete' / '混凝土' / 'Rectangular'; otherwise
-    returns the first structural column type found.
+    偵測優先順序：
+      1. Family.StructuralMaterialType 為 Concrete/PrecastConcrete，
+         且 family 名稱含 rectangular/矩形
+      2. Family.StructuralMaterialType 為 Concrete/PrecastConcrete
+      3. family 名稱含 concrete/混凝土
+
+    回傳 None 代表專案沒有混凝土柱 family —— 呼叫端應請使用者載入。
+    絕不退而使用鋼構柱：鋼構 H 柱沒有 b/h 斷面參數，會導致斷面
+    尺寸設不進去、外型也錯。
     """
     symbols = list(
         DB.FilteredElementCollector(doc)
@@ -233,15 +241,40 @@ def find_base_column_symbol(doc):
     if not symbols:
         return None
 
-    preferred = ('concrete', '混凝土', 'rectangular', '矩形')
+    concrete = []
+    rect_concrete = []
     for sym in symbols:
-        try:
-            name = DB.Element.Name.GetValue(sym).lower()
-        except Exception:
-            name = ''
-        if any(p in name for p in preferred):
-            return sym
-    return symbols[0]
+        fam = getattr(sym, 'Family', None)
+        fam_name = ''
+        if fam is not None:
+            try:
+                fam_name = fam.Name.lower()
+            except Exception:
+                fam_name = ''
+
+        is_concrete = False
+        if fam is not None:
+            try:
+                smt = fam.StructuralMaterialType
+                is_concrete = smt in (
+                    DB.Structure.StructuralMaterialType.Concrete,
+                    DB.Structure.StructuralMaterialType.PrecastConcrete,
+                )
+            except Exception:
+                pass
+        if not is_concrete:
+            is_concrete = ('concrete' in fam_name or '混凝土' in fam_name)
+
+        if is_concrete:
+            concrete.append(sym)
+            if 'rectang' in fam_name or '矩形' in fam_name:
+                rect_concrete.append(sym)
+
+    if rect_concrete:
+        return rect_concrete[0]
+    if concrete:
+        return concrete[0]
+    return None  # 無混凝土柱 family
 
 
 def _set_section_param(symbol, names, value_ft):
@@ -266,9 +299,11 @@ def create_column_types(doc, family_inventory):
     """
     base = find_base_column_symbol(doc)
     if base is None:
-        forms.alert('專案中找不到任何結構柱 family。\n'
-                    '請先載入一個矩形 RC 柱 family（例如 '
-                    'M_Concrete-Rectangular Column）再執行。',
+        forms.alert('專案中找不到「混凝土」結構柱 family。\n'
+                    '（可能只有鋼構 H 柱 — 那種不能用，無 b/h 斷面參數）\n\n'
+                    '請先載入一個矩形 RC 柱 family 再執行，例如：\n'
+                    'M_Concrete-Rectangular Column.rfa\n'
+                    '（Revit 預設族群庫 → Structural Columns → Concrete）',
                     exitscript=True)
 
     # Index existing symbols so we don't create duplicates
