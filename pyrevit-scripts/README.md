@@ -90,9 +90,10 @@ pushbutton 內的 `script.py` 是薄包裝，實際執行 `scripts/` 下的對�
 - [x] 完整 grids 建立（X 軸字母 A/B/C…，Y 軸數字 1/2/3…）
 - [x] Levels 建立（geometry.levels，同名共用不重複）
 - [x] Column Family duplication 與 b/h 參數設定
-- [x] 柱實例放置（格點交點、逐樓層、設定 top level）
-- [x] 單一 Transaction 包覆 + 失敗 rollback
-- [ ] Beam 沿 grid 線放置邏輯（sketch-based，後續）
+- [x] 柱實例放置（格點交點、依 fc 分區合併、top level + offset）
+- [x] 分段獨立 Transaction（5 phases）+ 失敗 rollback
+- [x] Beam Family duplication 與 b/h 參數設定
+- [x] 梁實例放置（沿格線、curve-based、依 elev_mm 定位）
 - [ ] Slab 邊界 sketch（後續）
 - [ ] Wall / 連續壁 牆型與位置（後續）
 - [ ] Material 設定（fc'、fy）— 目前 fc' 僅寫入 type comment

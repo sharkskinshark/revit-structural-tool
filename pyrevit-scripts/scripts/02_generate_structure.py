@@ -466,6 +466,159 @@ def place_columns(doc, design, level_map, type_map):
 
 
 # ═══════════════════════════════════════════════════════
+# BEAMS
+# ═══════════════════════════════════════════════════════
+
+def find_base_beam_symbol(doc):
+    """Find a CONCRETE structural-framing (beam) FamilySymbol as base.
+
+    與 find_base_column_symbol 同邏輯，但類別為 OST_StructuralFraming。
+    回傳 None 代表專案無混凝土梁 family。
+    """
+    symbols = list(
+        DB.FilteredElementCollector(doc)
+        .OfCategory(DB.BuiltInCategory.OST_StructuralFraming)
+        .WhereElementIsElementType()
+    )
+    if not symbols:
+        return None
+
+    concrete = []
+    for sym in symbols:
+        fam = getattr(sym, 'Family', None)
+        fam_name = ''
+        if fam is not None:
+            try:
+                fam_name = fam.Name.lower()
+            except Exception:
+                fam_name = ''
+        is_concrete = False
+        if fam is not None:
+            try:
+                smt = fam.StructuralMaterialType
+                is_concrete = smt in (
+                    DB.Structure.StructuralMaterialType.Concrete,
+                    DB.Structure.StructuralMaterialType.PrecastConcrete,
+                )
+            except Exception:
+                pass
+        if not is_concrete:
+            is_concrete = ('concrete' in fam_name or '混凝土' in fam_name)
+        if is_concrete:
+            concrete.append(sym)
+
+    return concrete[0] if concrete else None
+
+
+def list_beam_families(doc):
+    """Return sorted unique structural-framing family names."""
+    names = set()
+    for sym in (DB.FilteredElementCollector(doc)
+                .OfCategory(DB.BuiltInCategory.OST_StructuralFraming)
+                .WhereElementIsElementType()):
+        fam = getattr(sym, 'Family', None)
+        if fam is not None:
+            try:
+                names.add(fam.Name)
+            except Exception:
+                pass
+    return sorted(names)
+
+
+def create_beam_types(doc, family_inventory, base):
+    """Duplicate the base beam family per unique type in family_inventory.beams.
+
+    Returns (created, type_map)。
+    """
+    existing = {}
+    for sym in (DB.FilteredElementCollector(doc)
+                .OfCategory(DB.BuiltInCategory.OST_StructuralFraming)
+                .WhereElementIsElementType()):
+        try:
+            existing[DB.Element.Name.GetValue(sym)] = sym
+        except Exception:
+            pass
+
+    type_map = {}
+    created = 0
+    for bt in family_inventory.get('beams', []):
+        tname = bt['type']
+        if tname in existing:
+            type_map[tname] = existing[tname]
+            continue
+        new_sym = base.Duplicate(tname)
+        _set_section_param(new_sym, ['b', 'Width', '寬度'], mm_to_ft(bt['B_mm']))
+        _set_section_param(new_sym, ['h', 'Depth', 'Height', '深度'],
+                           mm_to_ft(bt['D_mm']))
+        type_map[tname] = new_sym
+        existing[tname] = new_sym
+        created += 1
+    return created, type_map
+
+
+def place_beams(doc, design, level_map, type_map):
+    """Place structural beams from design.structure.beams.
+
+    每根梁在格點 (i, j) 沿 dir 方向跨一個 bay；location 線的 Z 取
+    elev_mm（樓層頂面）。Returns (placed, skipped)。
+    """
+    geometry = design['geometry']
+    gx = mm_to_ft(geometry['grid_x_mm'])
+    gy = mm_to_ft(geometry['grid_y_mm'])
+
+    name_by_floor = {}
+    for lvl_def in geometry.get('levels', []):
+        if 'floor' in lvl_def:
+            name_by_floor[lvl_def['floor']] = lvl_def['name']
+
+    beams = design.get('structure', {}).get('beams', [])
+    placed = 0
+    skipped = 0
+
+    for b in beams:
+        symbol = type_map.get(b.get('family_type'))
+        if symbol is None:
+            skipped += 1
+            continue
+        if not symbol.IsActive:
+            symbol.Activate()
+
+        level_name = name_by_floor.get(b.get('floor'))
+        level = level_map.get(level_name) if level_name else None
+        if level is None:
+            skipped += 1
+            continue
+
+        z = mm_to_ft(b.get('elev_mm', 0))
+        x0 = b['i'] * gx
+        y0 = b['j'] * gy
+        length = mm_to_ft(b.get('span_mm', 0))
+        if length <= 0:
+            length = gx if b.get('dir') == 'X' else gy
+
+        if b.get('dir') == 'X':
+            p0 = DB.XYZ(x0, y0, z)
+            p1 = DB.XYZ(x0 + length, y0, z)
+        else:
+            p0 = DB.XYZ(x0, y0, z)
+            p1 = DB.XYZ(x0, y0 + length, z)
+
+        try:
+            curve = DB.Line.CreateBound(p0, p1)
+            doc.Create.NewFamilyInstance(
+                curve, symbol, level, DB.Structure.StructuralType.Beam)
+        except Exception:
+            skipped += 1
+            continue
+
+        placed += 1
+        if placed % 50 == 0:
+            print('  ...已放置 {0} 支梁'.format(placed))
+
+    return placed, skipped
+
+
+# ═══════════════════════════════════════════════════════
 # DRY-RUN (不需 Revit — 驗證 design.json 與規劃)
 # ═══════════════════════════════════════════════════════
 
@@ -545,6 +698,16 @@ def dry_run(path='output/design.json'):
     print('\n[柱實例] 共 {0}：放置 {1}，跳過(服務核) {2}'.format(
         len(cols), len(to_place), len(in_core)))
 
+    # ── Beams ──
+    beam_types = inv.get('beams', [])
+    beams = structure.get('beams', [])
+    print('\n[梁類型] {0} 種'.format(len(beam_types)))
+    for bt in beam_types:
+        print('    {0:<24} {1}x{2}mm  x{3}'.format(
+            bt.get('type', '?'), bt.get('B_mm', '?'),
+            bt.get('D_mm', '?'), bt.get('count', '?')))
+    print('[梁實例] 共 {0} 支'.format(len(beams)))
+
     # ── Cross-checks ──
     print('\n[交叉檢查]')
     warnings = []
@@ -597,12 +760,15 @@ def main():
 
     geometry = design['geometry']
     family_inventory = design.get('family_inventory', {})
+    structure = design.get('structure', {})
     n_levels = len(geometry.get('levels', []))
-    n_cols = len(design.get('structure', {}).get('columns', []))
+    n_cols = len(structure.get('columns', []))
     n_col_types = len(family_inventory.get('columns', []))
+    beams_data = structure.get('beams', [])
+    n_beams = len(beams_data)
+    n_beam_types = len(family_inventory.get('beams', []))
 
-    # 進 Transaction 前先確認混凝土柱 base family，
-    # 避免在 Transaction 內 exitscript 造成 rollback 噪音
+    # 進 Transaction 前先確認 base family（避免 Transaction 內 exitscript 噪音）
     base_col = find_base_column_symbol(doc)
     if base_col is None:
         fams = list_column_families(doc)
@@ -615,55 +781,89 @@ def main():
             'M_Concrete-Rectangular Column.rfa'.format(found),
             exitscript=True)
 
+    # 梁 base family — 非必要，找不到就跳過梁（柱仍會建）
+    base_beam = find_base_beam_symbol(doc)
+    do_beams = (base_beam is not None) and n_beams > 0
+    if n_beams > 0 and base_beam is None:
+        beam_note = '⚠ 未找到混凝土梁 family → 梁將跳過'
+    elif do_beams:
+        beam_note = '梁 {0} 支（{1} 類型）｜base: {2}'.format(
+            n_beams, n_beam_types,
+            base_beam.Family.Name if getattr(base_beam, 'Family', None) else '?')
+    else:
+        beam_note = '無梁資料'
+
     if not forms.alert(
             '將在 Revit 中建立：\n'
             '  樓層 {0} 個\n'
             '  軸網 {1}×{2}\n'
-            '  柱類型 {3} 種\n'
-            '  柱實例 約 {4} 支\n'
-            '  柱 base family: {5}\n\n'
+            '  柱類型 {3} 種｜柱實例 約 {4} 支\n'
+            '  柱 base family: {5}\n'
+            '  {6}\n\n'
             '請確認已備份 .rvt 檔。是否繼續？'.format(
                 n_levels, geometry['max_bx'] + 1, geometry['max_by'] + 1,
                 n_col_types, n_cols,
-                base_col.Family.Name if getattr(base_col, 'Family', None) else '?'),
+                base_col.Family.Name if getattr(base_col, 'Family', None) else '?',
+                beam_note),
             options=['繼續', '取消']) == '繼續':
         return
 
-    # 三段獨立 Transaction：方便定位卡死，且前段完成不會因後段失敗而丟失。
+    # 獨立 Transaction 分段：方便定位卡死，且前段完成不因後段失敗丟失。
     summary = {}
 
     print('=' * 50)
-    print('[Phase 1/3] 建立樓層與軸網…')
-    with revit.Transaction('結構生成 1/3: 樓層與軸網'):
+    print('[Phase 1/5] 建立樓層與軸網…')
+    with revit.Transaction('結構生成 1/5: 樓層與軸網'):
         n_created, level_map = create_levels(doc, geometry)
         summary['levels'] = '{0} 新建 / {1} 共用'.format(n_created, n_levels - n_created)
         summary['grids'] = '{0} 條'.format(create_grids(doc, geometry))
         doc.Regenerate()
     print('  [OK] 樓層 {0}；軸網 {1}'.format(summary['levels'], summary['grids']))
 
-    print('[Phase 2/3] 建立柱類型…')
-    with revit.Transaction('結構生成 2/3: 柱類型'):
+    print('[Phase 2/5] 建立柱類型…')
+    with revit.Transaction('結構生成 2/5: 柱類型'):
         n_types, type_map = create_column_types(doc, family_inventory, base_col)
         summary['column_types'] = '{0} 新建 / {1} 共用'.format(
             n_types, n_col_types - n_types)
         doc.Regenerate()
     print('  [OK] 柱類型 {0}'.format(summary['column_types']))
 
-    print('[Phase 3/3] 放置柱…')
-    with revit.Transaction('結構生成 3/3: 放置柱'):
+    print('[Phase 3/5] 放置柱…')
+    with revit.Transaction('結構生成 3/5: 放置柱'):
         placed, skipped, src = place_columns(doc, design, level_map, type_map)
         summary['columns'] = '{0} 支（合併自 {1} 個逐層段）／略過 {2}'.format(
             placed, src, skipped)
     print('  [OK] 柱 {0}'.format(summary['columns']))
+
+    if do_beams:
+        print('[Phase 4/5] 建立梁類型…')
+        with revit.Transaction('結構生成 4/5: 梁類型'):
+            n_btypes, beam_type_map = create_beam_types(
+                doc, family_inventory, base_beam)
+            summary['beam_types'] = '{0} 新建 / {1} 共用'.format(
+                n_btypes, n_beam_types - n_btypes)
+            doc.Regenerate()
+        print('  [OK] 梁類型 {0}'.format(summary['beam_types']))
+
+        print('[Phase 5/5] 放置梁…（共 {0} 支）'.format(n_beams))
+        with revit.Transaction('結構生成 5/5: 放置梁'):
+            bplaced, bskipped = place_beams(doc, design, level_map, beam_type_map)
+            summary['beams'] = '{0} 支／略過 {1}'.format(bplaced, bskipped)
+        print('  [OK] 梁 {0}'.format(summary['beams']))
+    else:
+        summary['beam_types'] = '-'
+        summary['beams'] = ('略過（無混凝土梁 family）' if n_beams > 0
+                            else '無梁資料')
+        print('[Phase 4-5/5] 梁：{0}'.format(summary['beams']))
     print('=' * 50)
 
-    # TODO: beams / slabs / shear walls / diaphragm wall
-    #       (sketch-based geometry — separate iteration)
+    # TODO: slabs / shear walls / diaphragm wall（sketch-based，後續）
 
     msg = '結構模型生成完成！\n\n'
-    for k in ('levels', 'grids', 'column_types', 'columns'):
+    for k in ('levels', 'grids', 'column_types', 'columns',
+              'beam_types', 'beams'):
         msg += '  {0}: {1}\n'.format(k, summary.get(k, '-'))
-    msg += '\n梁 / 樓板 / 牆 尚未實作，請手動或待後續腳本。'
+    msg += '\n樓板 / 牆 尚未實作，請手動或待後續腳本。'
     forms.alert(msg, title='完成')
     print(msg)
 
