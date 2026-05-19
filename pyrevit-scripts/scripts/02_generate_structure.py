@@ -358,13 +358,18 @@ def create_column_types(doc, family_inventory, base):
 # ═══════════════════════════════════════════════════════
 
 def place_columns(doc, design, level_map, type_map):
-    """Place one structural column instance per (grid point, floor) entry.
+    """Place structural columns — ONE Revit instance per (grid point,
+    tapering zone).
 
-    Each column entry in schema 1.0 is a per-floor segment. We place a
-    Revit column at grid point (i, j) with base = that floor's level and
-    top = the next floor's level (skipping floor 0).
+    schema 1.0 把柱「依樓層」展開（給前端 3D 預覽用）。若照逐層放，
+    一個格點 25 層就是 25 支堆疊柱、面對面重合 → Revit 的柱接合與
+    分析模型運算對重合幾何會爆炸（模型重疊 + 卡死）。
 
-    Returns (placed, skipped).
+    這裡改成：把同一格點、相鄰且 family_type 相同的樓層段合併，
+    一段只放「一支」貫通的 Revit 柱（base=該段最低樓層的 Level，
+    top=最高樓層上方的 Level）。508 逐層段 → 約 60 支柱。
+
+    Returns (placed, skipped, source_entries)。
     """
     geometry = design['geometry']
     gx = mm_to_ft(geometry['grid_x_mm'])
@@ -381,52 +386,73 @@ def place_columns(doc, design, level_map, type_map):
         return f + 2 if f == -1 else f + 1
 
     columns = design.get('structure', {}).get('columns', [])
+
+    # 1. 依格點 (i, j) 分組（服務核柱跳過）
+    by_grid = {}
+    source_entries = 0
+    for col in columns:
+        if col.get('in_core'):
+            continue
+        source_entries += 1
+        by_grid.setdefault((col['i'], col['j']), []).append(col)
+
     placed = 0
     skipped = 0
 
-    for col in columns:
-        if col.get('in_core'):
-            continue  # core columns are replaced by shear walls
+    for (i, j), entries in by_grid.items():
+        entries.sort(key=lambda c: c['floor'])
 
-        symbol = type_map.get(col.get('family_type'))
-        if symbol is None:
-            skipped += 1
-            continue
-        if not symbol.IsActive:
-            symbol.Activate()
+        # 2. 切成「相鄰樓層 + 同 family_type」的區段 run
+        runs = []
+        for c in entries:
+            ft = c.get('family_type')
+            f = c['floor']
+            if (runs and runs[-1]['family_type'] == ft
+                    and next_floor(runs[-1]['last']) == f):
+                runs[-1]['last'] = f
+            else:
+                runs.append({'family_type': ft, 'first': f, 'last': f})
 
-        floor = col['floor']
-        base_name = name_by_floor.get(floor)
-        base_level = level_map.get(base_name) if base_name else None
-        if base_level is None:
-            skipped += 1
-            continue
+        # 3. 每個 run 放「一支」貫通柱
+        x = i * gx
+        y = j * gy
+        for run in runs:
+            symbol = type_map.get(run['family_type'])
+            if symbol is None:
+                skipped += 1
+                continue
+            if not symbol.IsActive:
+                symbol.Activate()
 
-        x = col['i'] * gx
-        y = col['j'] * gy
-        pt = DB.XYZ(x, y, base_level.Elevation)
+            base_name = name_by_floor.get(run['first'])
+            base_level = level_map.get(base_name) if base_name else None
+            if base_level is None:
+                skipped += 1
+                continue
 
-        try:
-            inst = doc.Create.NewFamilyInstance(
-                pt, symbol, base_level, DB.Structure.StructuralType.Column)
-        except Exception:
-            skipped += 1
-            continue
-
-        # Set top level to the next floor's level if it exists
-        top_name = name_by_floor.get(next_floor(floor))
-        top_level = level_map.get(top_name) if top_name else None
-        if top_level is not None:
+            pt = DB.XYZ(x, y, base_level.Elevation)
             try:
-                tp = inst.get_Parameter(DB.BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)
-                if tp is not None and not tp.IsReadOnly:
-                    tp.Set(top_level.Id)
+                inst = doc.Create.NewFamilyInstance(
+                    pt, symbol, base_level, DB.Structure.StructuralType.Column)
             except Exception:
-                pass
+                skipped += 1
+                continue
 
-        placed += 1
+            # top level = run 最高樓層「上方」的 Level
+            top_name = name_by_floor.get(next_floor(run['last']))
+            top_level = level_map.get(top_name) if top_name else None
+            if top_level is not None:
+                try:
+                    tp = inst.get_Parameter(
+                        DB.BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)
+                    if tp is not None and not tp.IsReadOnly:
+                        tp.Set(top_level.Id)
+                except Exception:
+                    pass
 
-    return placed, skipped
+            placed += 1
+
+    return placed, skipped, source_entries
 
 
 # ═══════════════════════════════════════════════════════
@@ -612,9 +638,10 @@ def main():
 
         doc.Regenerate()
 
-        # 4. Place columns
-        placed, skipped = place_columns(doc, design, level_map, type_map)
-        summary['columns'] = '{0} 放置 / {1} 略過'.format(placed, skipped)
+        # 4. Place columns（同格點同 fc 區段合併成一支貫通柱）
+        placed, skipped, src = place_columns(doc, design, level_map, type_map)
+        summary['columns'] = '{0} 支（合併自 {1} 個逐層段）／略過 {2}'.format(
+            placed, src, skipped)
 
         # TODO: beams / slabs / shear walls / diaphragm wall
         #       (sketch-based geometry — separate iteration)
