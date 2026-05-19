@@ -459,6 +459,8 @@ def place_columns(doc, design, level_map, type_map):
                     pass
 
             placed += 1
+            if placed % 20 == 0:
+                print('  ...已放置 {0} 支柱'.format(placed))
 
     return placed, skipped, source_entries
 
@@ -627,32 +629,36 @@ def main():
             options=['繼續', '取消']) == '繼續':
         return
 
+    # 三段獨立 Transaction：方便定位卡死，且前段完成不會因後段失敗而丟失。
     summary = {}
-    with revit.Transaction('生成結構模型 (Levels/Grids/Columns)'):
-        # 1. Levels
+
+    print('=' * 50)
+    print('[Phase 1/3] 建立樓層與軸網…')
+    with revit.Transaction('結構生成 1/3: 樓層與軸網'):
         n_created, level_map = create_levels(doc, geometry)
         summary['levels'] = '{0} 新建 / {1} 共用'.format(n_created, n_levels - n_created)
-
-        # 2. Grids
         summary['grids'] = '{0} 條'.format(create_grids(doc, geometry))
-
-        # Regenerate so new levels/grids are usable for placement
         doc.Regenerate()
+    print('  [OK] 樓層 {0}；軸網 {1}'.format(summary['levels'], summary['grids']))
 
-        # 3. Column types
+    print('[Phase 2/3] 建立柱類型…')
+    with revit.Transaction('結構生成 2/3: 柱類型'):
         n_types, type_map = create_column_types(doc, family_inventory, base_col)
         summary['column_types'] = '{0} 新建 / {1} 共用'.format(
             n_types, n_col_types - n_types)
-
         doc.Regenerate()
+    print('  [OK] 柱類型 {0}'.format(summary['column_types']))
 
-        # 4. Place columns（同格點同 fc 區段合併成一支貫通柱）
+    print('[Phase 3/3] 放置柱…')
+    with revit.Transaction('結構生成 3/3: 放置柱'):
         placed, skipped, src = place_columns(doc, design, level_map, type_map)
         summary['columns'] = '{0} 支（合併自 {1} 個逐層段）／略過 {2}'.format(
             placed, src, skipped)
+    print('  [OK] 柱 {0}'.format(summary['columns']))
+    print('=' * 50)
 
-        # TODO: beams / slabs / shear walls / diaphragm wall
-        #       (sketch-based geometry — separate iteration)
+    # TODO: beams / slabs / shear walls / diaphragm wall
+    #       (sketch-based geometry — separate iteration)
 
     msg = '結構模型生成完成！\n\n'
     for k in ('levels', 'grids', 'column_types', 'columns'):
