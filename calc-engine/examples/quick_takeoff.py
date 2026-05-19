@@ -167,7 +167,8 @@ def main():
     except ImportError as e:
         print(f"⚠ Skipping PDF: {e}")
 
-    json_path = export_json(qto, cost, project_info, out_dir / 'design.json')
+    # 注意：這是「計算結果摘要」，不是 schema 1.0 的設計輸入 design.json
+    json_path = export_json(qto, cost, project_info, out_dir / 'takeoff_summary.json')
     print(f"✓ JSON saved: {json_path}")
 
 

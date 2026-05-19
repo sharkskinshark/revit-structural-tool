@@ -47,14 +47,16 @@
    ↓
 9. 滿意後匯出 design.json
    ↓
-10. 進 calc-engine 跑用量計算
-    python examples/quick_takeoff.py
+10. 進 calc-engine 跑用量計算（讀步驟 9 匯出的 design.json）
+    python examples/from_design.py output/design.json
     ↓ 產出：
-    output/design_report.xlsx
-    output/design.json
+    output/design_report.xlsx   （6 分頁含強柱弱梁）
+    output/design_report.pdf    （A4 摘要報告）
+    output/design_summary.json  （用量/造價結果）
    ↓
-11. 進 Revit + pyRevit 自動建模
+11. 進 Revit + pyRevit 自動建模（讀同一份 design.json）
     執行 02_generate_structure.py
+    （進 Revit 前可先 --dry-run 離線驗證）
     ↓ 自動建立：
     • 軸網與樓層
     • Family Type
