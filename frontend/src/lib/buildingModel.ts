@@ -246,7 +246,7 @@ export function generateBeams(volumes, gridX, gridY, typicalH, exceptions, seism
           beamMap.set(key, {
             dir: "X", i, j, floor: f, elev, span, B, D,
             family: "RC-MB",
-            type: `RC-MB-${B}x${D}`,
+            type: `RC-MB-${B}×${D}`,
             // Position
             cx: (i + 0.5) * gridX,
             cy: elev - D / 2,
@@ -267,7 +267,7 @@ export function generateBeams(volumes, gridX, gridY, typicalH, exceptions, seism
           beamMap.set(key, {
             dir: "Y", i, j, floor: f, elev, span, B, D,
             family: "RC-MB",
-            type: `RC-MB-${B}x${D}`,
+            type: `RC-MB-${B}×${D}`,
             cx: i * gridX,
             cy: elev - D / 2,
             cz: (j + 0.5) * gridY,
@@ -343,7 +343,9 @@ export function generateFamilyTypes(columns, beams, slabs, dwall, hasCore, total
     for (let f = c.minF; f <= c.maxF; f++) {
       if (f === 0) continue;
       const { dim, fc } = getColumnSize(f, totalAbove);
-      const t = `RC-C-${dim}x${dim}-fc${fc}`;
+      // 用 × (U+00D7) 與 exportDesign / docs/design-schema.md 一致，
+      // 否則 family_inventory 與柱 entry 的 family_type 對不上
+      const t = `RC-C-${dim}×${dim}-fc${fc}`;
       if (!colTypes.has(t)) colTypes.set(t, { type: t, count: 0, dim, fc });
       colTypes.get(t).count++;
     }
