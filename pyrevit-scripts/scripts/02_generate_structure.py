@@ -14,9 +14,12 @@
     output/design.json   （schema 1.0，見 docs/design-schema.md）
 
 執行：
-    在 pyRevit 環境中執行（pyRevit ribbon 或 console）
+    Revit 模式 — 在 pyRevit 環境中執行（pyRevit ribbon 或 console）
+    Dry-run  — 一般 Python 即可，不需 Revit：
+        python 02_generate_structure.py --dry-run [path/to/design.json]
+        只讀檔、驗證、印出「將建立什麼」+ 資料交叉檢查，不動 Revit。
 
-前置需求：
+前置需求（Revit 模式）：
     專案中需已載入「至少一個矩形結構柱 family」作為 base，
     例如 M_Concrete-Rectangular Column。腳本會 duplicate 它並改 b/h 參數。
 
@@ -26,14 +29,16 @@
     - 執行前請先備份 .rvt 檔
 """
 
+import io
 import json
 import os
+import sys
 
 try:
     from pyrevit import revit, DB, forms
+    HAS_PYREVIT = True
 except ImportError:
-    print("Must run inside pyRevit environment")
-    raise SystemExit
+    HAS_PYREVIT = False
 
 
 # ═══════════════════════════════════════════════════════
@@ -54,7 +59,7 @@ def load_design(path='output/design.json'):
     if not os.path.exists(path):
         forms.alert('找不到 design.json，請先從前端工具點「匯出」產生，'
                     '並放到 {0}'.format(path), exitscript=True)
-    with open(path, 'r') as f:
+    with io.open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     version = data.get('schema_version', '')
@@ -341,6 +346,119 @@ def place_columns(doc, design, level_map, type_map):
 
 
 # ═══════════════════════════════════════════════════════
+# DRY-RUN (不需 Revit — 驗證 design.json 與規劃)
+# ═══════════════════════════════════════════════════════
+
+def dry_run(path='output/design.json'):
+    """Validate design.json and print the build plan WITHOUT touching Revit.
+
+    Catches schema / data-consistency problems before the real Revit run.
+    Returns an exit code (0 = OK, 1 = problem found).
+    """
+    print('=' * 60)
+    print('DRY-RUN  (不會建立或修改任何 Revit 元素)')
+    print('=' * 60)
+
+    if not os.path.exists(path):
+        print('[X] 找不到檔案: {0}'.format(path))
+        return 1
+
+    with io.open(path, 'r', encoding='utf-8') as f:
+        try:
+            design = json.load(f)
+        except ValueError as e:
+            print('[X] JSON 解析失敗: {0}'.format(e))
+            return 1
+
+    version = design.get('schema_version', '')
+    try:
+        major = int(str(version).split('.')[0])
+    except (ValueError, AttributeError):
+        major = 0
+    print('schema_version: {0}'.format(version or '(缺)'))
+    if major != SCHEMA_MAJOR:
+        print('[X] schema 主版本不符，本腳本支援 {0}.x'.format(SCHEMA_MAJOR))
+        return 1
+
+    problems = validate_design(design)
+    if problems:
+        print('[X] 必要欄位驗證未通過:')
+        for p in problems:
+            print('    - {0}'.format(p))
+        return 1
+    print('[OK] 必要欄位驗證通過')
+
+    geometry = design['geometry']
+    structure = design.get('structure', {})
+    inv = design.get('family_inventory', {})
+
+    # ── Levels ──
+    levels = geometry.get('levels', [])
+    print('\n[樓層] {0} 個'.format(len(levels)))
+    for lv in levels:
+        print('    {0:<6} elev={1:>10.0f} mm   h={2} mm'.format(
+            lv.get('name', '?'), lv.get('elevation_mm', 0),
+            lv.get('height_mm', '?')))
+
+    # ── Grids ──
+    nx, ny = int(geometry['max_bx']), int(geometry['max_by'])
+    x_labels = [chr(65 + i) if i < 26 else 'X{0}'.format(i) for i in range(nx + 1)]
+    y_labels = [str(j + 1) for j in range(ny + 1)]
+    print('\n[軸網] {0} 條'.format(nx + 1 + ny + 1))
+    print('    X 軸 ({0}): {1}'.format(nx + 1, ' '.join(x_labels)))
+    print('    Y 軸 ({0}): {1}'.format(ny + 1, ' '.join(y_labels)))
+    print('    軸距  X={0}mm  Y={1}mm'.format(
+        geometry['grid_x_mm'], geometry['grid_y_mm']))
+
+    # ── Column types ──
+    col_types = inv.get('columns', [])
+    print('\n[柱類型] {0} 種'.format(len(col_types)))
+    for ct in col_types:
+        print('    {0:<26} {1}x{2}mm  fc={3}  x{4}'.format(
+            ct.get('type', '?'), ct.get('width_mm', '?'),
+            ct.get('depth_mm', '?'), ct.get('fc', '?'), ct.get('count', '?')))
+
+    # ── Columns to place ──
+    cols = structure.get('columns', [])
+    in_core = [c for c in cols if c.get('in_core')]
+    to_place = [c for c in cols if not c.get('in_core')]
+    print('\n[柱實例] 共 {0}：放置 {1}，跳過(服務核) {2}'.format(
+        len(cols), len(to_place), len(in_core)))
+
+    # ── Cross-checks ──
+    print('\n[交叉檢查]')
+    warnings = []
+    type_names = set(ct.get('type') for ct in col_types)
+    level_floors = set(lv.get('floor') for lv in levels if 'floor' in lv)
+
+    missing_types = sorted(set(
+        c.get('family_type') for c in to_place
+        if c.get('family_type') not in type_names))
+    for mt in missing_types:
+        warnings.append('柱參照的類型不在 family_inventory: {0}'.format(mt))
+
+    missing_floors = sorted(set(
+        c.get('floor') for c in to_place
+        if c.get('floor') not in level_floors))
+    for mf in missing_floors:
+        warnings.append('柱所在樓層在 geometry.levels 找不到: floor={0}'.format(mf))
+
+    if warnings:
+        for w in warnings:
+            print('    [!] {0}'.format(w))
+    else:
+        print('    [OK] 柱的 family_type 與樓層都對得上')
+
+    print('\n' + '=' * 60)
+    if warnings:
+        print('DRY-RUN 完成，但有 {0} 個警告 — 進 Revit 前建議先處理'.format(
+            len(warnings)))
+        return 1
+    print('DRY-RUN 完成 [OK]  邏輯與資料一致，可進 Revit 實跑')
+    return 0
+
+
+# ═══════════════════════════════════════════════════════
 # MAIN ENTRY
 # ═══════════════════════════════════════════════════════
 
@@ -410,4 +528,21 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # Windows console 預設 cp950，無法顯示部分中文 — dry-run 時改用 UTF-8
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+
+    if '--dry-run' in sys.argv:
+        rest = [a for a in sys.argv[1:] if a != '--dry-run']
+        design_path = rest[0] if rest else 'output/design.json'
+        sys.exit(dry_run(design_path))
+    else:
+        if not HAS_PYREVIT:
+            print('此腳本的 Revit 模式需在 pyRevit 環境執行。')
+            print('離線驗證請用：')
+            print('  python 02_generate_structure.py --dry-run [design.json]')
+            sys.exit(1)
+        main()
