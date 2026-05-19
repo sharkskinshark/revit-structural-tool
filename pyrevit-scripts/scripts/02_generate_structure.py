@@ -290,22 +290,29 @@ def _set_section_param(symbol, names, value_ft):
     return False
 
 
-def create_column_types(doc, family_inventory):
+def list_column_families(doc):
+    """Return sorted unique structural-column family names in the project."""
+    names = set()
+    for sym in (DB.FilteredElementCollector(doc)
+                .OfCategory(DB.BuiltInCategory.OST_StructuralColumns)
+                .WhereElementIsElementType()):
+        fam = getattr(sym, 'Family', None)
+        if fam is not None:
+            try:
+                names.add(fam.Name)
+            except Exception:
+                pass
+    return sorted(names)
+
+
+def create_column_types(doc, family_inventory, base):
     """Duplicate the base column family once per unique type in family_inventory.
 
+    base: 已確認的混凝土柱 base FamilySymbol（由 main() 在 Transaction 前取得）。
     Type names follow the schema, e.g. 'RC-C-700×700-fc350'.
     Section dimensions are set via the 'b' / 'h' parameters (common in the
     metric rectangular concrete column family). Returns name -> FamilySymbol.
     """
-    base = find_base_column_symbol(doc)
-    if base is None:
-        forms.alert('專案中找不到「混凝土」結構柱 family。\n'
-                    '（可能只有鋼構 H 柱 — 那種不能用，無 b/h 斷面參數）\n\n'
-                    '請先載入一個矩形 RC 柱 family 再執行，例如：\n'
-                    'M_Concrete-Rectangular Column.rfa\n'
-                    '（Revit 預設族群庫 → Structural Columns → Concrete）',
-                    exitscript=True)
-
     # Index existing symbols so we don't create duplicates
     existing = {}
     for sym in (DB.FilteredElementCollector(doc)
@@ -558,15 +565,31 @@ def main():
     n_cols = len(design.get('structure', {}).get('columns', []))
     n_col_types = len(family_inventory.get('columns', []))
 
+    # 進 Transaction 前先確認混凝土柱 base family，
+    # 避免在 Transaction 內 exitscript 造成 rollback 噪音
+    base_col = find_base_column_symbol(doc)
+    if base_col is None:
+        fams = list_column_families(doc)
+        found = '\n  '.join(fams) if fams else '（專案內無任何結構柱 family）'
+        forms.alert(
+            '找不到「混凝土」結構柱 family，無法建立柱。\n\n'
+            '目前專案的結構柱 family：\n  {0}\n\n'
+            '請載入矩形 RC 柱 family 再執行：\n'
+            'Insert → Load Family → Structural Columns → Concrete →\n'
+            'M_Concrete-Rectangular Column.rfa'.format(found),
+            exitscript=True)
+
     if not forms.alert(
             '將在 Revit 中建立：\n'
             '  樓層 {0} 個\n'
             '  軸網 {1}×{2}\n'
             '  柱類型 {3} 種\n'
-            '  柱實例 約 {4} 支\n\n'
+            '  柱實例 約 {4} 支\n'
+            '  柱 base family: {5}\n\n'
             '請確認已備份 .rvt 檔。是否繼續？'.format(
                 n_levels, geometry['max_bx'] + 1, geometry['max_by'] + 1,
-                n_col_types, n_cols),
+                n_col_types, n_cols,
+                base_col.Family.Name if getattr(base_col, 'Family', None) else '?'),
             options=['繼續', '取消']) == '繼續':
         return
 
@@ -583,7 +606,7 @@ def main():
         doc.Regenerate()
 
         # 3. Column types
-        n_types, type_map = create_column_types(doc, family_inventory)
+        n_types, type_map = create_column_types(doc, family_inventory, base_col)
         summary['column_types'] = '{0} 新建 / {1} 共用'.format(
             n_types, n_col_types - n_types)
 
