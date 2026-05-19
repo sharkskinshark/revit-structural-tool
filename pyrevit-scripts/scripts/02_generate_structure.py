@@ -375,11 +375,13 @@ def place_columns(doc, design, level_map, type_map):
     gx = mm_to_ft(geometry['grid_x_mm'])
     gy = mm_to_ft(geometry['grid_y_mm'])
 
-    # floor number -> level name
+    # floor number -> level name / 該樓層高度(mm)
     name_by_floor = {}
+    height_by_floor = {}
     for lvl_def in geometry.get('levels', []):
         if 'floor' in lvl_def:
             name_by_floor[lvl_def['floor']] = lvl_def['name']
+            height_by_floor[lvl_def['floor']] = lvl_def.get('height_mm', 0)
 
     def next_floor(f):
         """f+1, skipping 0 (B1F → 1F directly)."""
@@ -438,8 +440,10 @@ def place_columns(doc, design, level_map, type_map):
                 skipped += 1
                 continue
 
-            # top level = run 最高樓層「上方」的 Level
-            top_name = name_by_floor.get(next_floor(run['last']))
+            # top = run 最高樓層的 Level + 該樓層高度作 offset。
+            # 用 offset 而非「上一層 Level」，這樣即使最高樓層上方
+            # 沒有 Level（屋頂），柱仍能正確延伸到該樓層頂部。
+            top_name = name_by_floor.get(run['last'])
             top_level = level_map.get(top_name) if top_name else None
             if top_level is not None:
                 try:
@@ -447,6 +451,10 @@ def place_columns(doc, design, level_map, type_map):
                         DB.BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)
                     if tp is not None and not tp.IsReadOnly:
                         tp.Set(top_level.Id)
+                    toff = inst.get_Parameter(
+                        DB.BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM)
+                    if toff is not None and not toff.IsReadOnly:
+                        toff.Set(mm_to_ft(height_by_floor.get(run['last'], 0)))
                 except Exception:
                     pass
 
