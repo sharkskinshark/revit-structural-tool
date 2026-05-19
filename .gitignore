@@ -18,6 +18,9 @@ build/
 .idea/
 *.swp
 
+# Claude Code（個人 session 設定，不共用）
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
