@@ -1,0 +1,2 @@
+title: 生成結構
+tooltip: 讀取 design.json (schema 1.0)，在 Revit 建立樓層、軸網、柱類型與柱實例。

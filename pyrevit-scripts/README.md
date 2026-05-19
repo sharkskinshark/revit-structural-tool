@@ -2,13 +2,30 @@
 
 自動化 Revit 結構建模腳本。
 
+## 資料夾結構
+
+```
+pyrevit-scripts/
+├── scripts/                       # 實作本體（CLI / --dry-run 也用這份）
+│   ├── 01_read_project.py
+│   └── 02_generate_structure.py
+└── StructuralTool.extension/      # pyRevit extension（ribbon 按鈕）
+    └── StructuralTool.tab/
+        └── Structure.panel/
+            ├── 01_ReadProject.pushbutton/      → 讀取專案
+            └── 02_GenerateStructure.pushbutton/ → 生成結構
+```
+
+pushbutton 內的 `script.py` 是薄包裝，實際執行 `scripts/` 下的對應檔。
+
 ## 安裝
 
-1. 安裝 pyRevit: https://pyrevit.com/
-2. 將本資料夾加入 pyRevit Extension paths：
-   - 開啟 pyRevit → Settings → Custom Extension Directories
-   - 加入此資料夾完整路徑
-3. 重啟 Revit
+1. 安裝 pyRevit（可用專案根目錄的 `install-pyrevit.ps1` 自動安裝）
+2. 註冊本 extension 搜尋路徑（擇一）：
+   - **CLI**：`pyrevit extensions paths add "<pyrevit-scripts 完整路徑>"`
+   - **GUI**：pyRevit → Settings → Custom Extension Directories → 加入 `pyrevit-scripts` 完整路徑
+3. 在 Revit 的 pyRevit 頁籤按 **Reload**，或重啟 Revit
+4. ribbon 出現 **StructuralTool** 頁籤 → Structure 面板 → 兩個按鈕
 
 ## 腳本清單
 

@@ -1,0 +1,2 @@
+title: 讀取專案
+tooltip: 讀取目前 Revit 專案的樓層、軸網、柱資訊，輸出為 project_info.json。
