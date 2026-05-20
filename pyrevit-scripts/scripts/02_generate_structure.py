@@ -556,11 +556,51 @@ def create_beam_types(doc, family_inventory, base):
     return created, type_map
 
 
-def place_beams(doc, design, level_map, type_map):
-    """Place structural beams from design.structure.beams.
+def _place_one_beam(doc, b, gx, gy, name_by_floor, level_map, type_map):
+    """放一支梁；成功回 True，否則 False。"""
+    symbol = type_map.get(b.get('family_type'))
+    if symbol is None:
+        return False
+    if not symbol.IsActive:
+        symbol.Activate()
+    level_name = name_by_floor.get(b.get('floor'))
+    level = level_map.get(level_name) if level_name else None
+    if level is None:
+        return False
 
-    每根梁在格點 (i, j) 沿 dir 方向跨一個 bay；location 線的 Z 取
-    elev_mm（樓層頂面）。Returns (placed, skipped)。
+    z = mm_to_ft(b.get('elev_mm', 0))
+    x0 = b['i'] * gx
+    y0 = b['j'] * gy
+    length = mm_to_ft(b.get('span_mm', 0))
+    if length <= 0:
+        length = gx if b.get('dir') == 'X' else gy
+
+    if b.get('dir') == 'X':
+        p0 = DB.XYZ(x0, y0, z)
+        p1 = DB.XYZ(x0 + length, y0, z)
+    else:
+        p0 = DB.XYZ(x0, y0, z)
+        p1 = DB.XYZ(x0, y0 + length, z)
+
+    try:
+        curve = DB.Line.CreateBound(p0, p1)
+        doc.Create.NewFamilyInstance(
+            curve, symbol, level, DB.Structure.StructuralType.Beam)
+        return True
+    except Exception:
+        return False
+
+
+def place_beams(doc, design, level_map, type_map):
+    """Place beams 「分樓層」逐批 commit。
+
+    976 支梁全包在單一 Transaction 內，Revit 的梁接合運算會在
+    commit 一次做完，記憶體可衝到 10GB+。改成每樓層各一個
+    Transaction：每次 ~40 支梁 commit，Revit 分批處理 join，
+    記憶體不會堆積。
+
+    呼叫端「不要」再用外層 Transaction 包這個函式 — 它自己管。
+    Returns (placed, skipped)。
     """
     geometry = design['geometry']
     gx = mm_to_ft(geometry['grid_x_mm'])
@@ -572,50 +612,29 @@ def place_beams(doc, design, level_map, type_map):
             name_by_floor[lvl_def['floor']] = lvl_def['name']
 
     beams = design.get('structure', {}).get('beams', [])
-    placed = 0
-    skipped = 0
-
+    by_floor = {}
     for b in beams:
-        symbol = type_map.get(b.get('family_type'))
-        if symbol is None:
-            skipped += 1
-            continue
-        if not symbol.IsActive:
-            symbol.Activate()
+        by_floor.setdefault(b.get('floor'), []).append(b)
 
-        level_name = name_by_floor.get(b.get('floor'))
-        level = level_map.get(level_name) if level_name else None
-        if level is None:
-            skipped += 1
-            continue
+    total_placed = 0
+    total_skipped = 0
+    floors = sorted(by_floor.keys())
+    for f in floors:
+        batch = by_floor[f]
+        tx_name = '結構生成 5/5: 放梁 (floor={0}, n={1})'.format(f, len(batch))
+        with revit.Transaction(tx_name):
+            placed_here = 0
+            for b in batch:
+                if _place_one_beam(doc, b, gx, gy, name_by_floor,
+                                   level_map, type_map):
+                    placed_here += 1
+                else:
+                    total_skipped += 1
+            total_placed += placed_here
+        print('  ...floor {0:>3}: 放 {1} 支（累計 {2}）'.format(
+            f, placed_here, total_placed))
 
-        z = mm_to_ft(b.get('elev_mm', 0))
-        x0 = b['i'] * gx
-        y0 = b['j'] * gy
-        length = mm_to_ft(b.get('span_mm', 0))
-        if length <= 0:
-            length = gx if b.get('dir') == 'X' else gy
-
-        if b.get('dir') == 'X':
-            p0 = DB.XYZ(x0, y0, z)
-            p1 = DB.XYZ(x0 + length, y0, z)
-        else:
-            p0 = DB.XYZ(x0, y0, z)
-            p1 = DB.XYZ(x0, y0 + length, z)
-
-        try:
-            curve = DB.Line.CreateBound(p0, p1)
-            doc.Create.NewFamilyInstance(
-                curve, symbol, level, DB.Structure.StructuralType.Beam)
-        except Exception:
-            skipped += 1
-            continue
-
-        placed += 1
-        if placed % 50 == 0:
-            print('  ...已放置 {0} 支梁'.format(placed))
-
-    return placed, skipped
+    return total_placed, total_skipped
 
 
 # ═══════════════════════════════════════════════════════
@@ -845,10 +864,10 @@ def main():
             doc.Regenerate()
         print('  [OK] 梁類型 {0}'.format(summary['beam_types']))
 
-        print('[Phase 5/5] 放置梁…（共 {0} 支）'.format(n_beams))
-        with revit.Transaction('結構生成 5/5: 放置梁'):
-            bplaced, bskipped = place_beams(doc, design, level_map, beam_type_map)
-            summary['beams'] = '{0} 支／略過 {1}'.format(bplaced, bskipped)
+        # 梁逐樓層 commit（place_beams 內部管 Transaction）
+        print('[Phase 5/5] 放置梁…（共 {0} 支，分樓層 commit）'.format(n_beams))
+        bplaced, bskipped = place_beams(doc, design, level_map, beam_type_map)
+        summary['beams'] = '{0} 支／略過 {1}'.format(bplaced, bskipped)
         print('  [OK] 梁 {0}'.format(summary['beams']))
     else:
         summary['beam_types'] = '-'
