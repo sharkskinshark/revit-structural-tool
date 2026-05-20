@@ -584,8 +584,16 @@ def _place_one_beam(doc, b, gx, gy, name_by_floor, level_map, type_map):
 
     try:
         curve = DB.Line.CreateBound(p0, p1)
-        doc.Create.NewFamilyInstance(
+        inst = doc.Create.NewFamilyInstance(
             curve, symbol, level, DB.Structure.StructuralType.Beam)
+        # 關閉兩端自動接合（cope/mitre）— Revit 對近千支梁全做接合運算
+        # 會嚴重拖慢 3D 視圖。梁仍是結構梁、僅省略接合切割，需要時可手動
+        # 在 Revit 內對特定梁重新啟用。
+        try:
+            DB.Structure.StructuralFramingUtils.DisallowJoinAtEnd(inst, 0)
+            DB.Structure.StructuralFramingUtils.DisallowJoinAtEnd(inst, 1)
+        except Exception:
+            pass
         return True
     except Exception:
         return False

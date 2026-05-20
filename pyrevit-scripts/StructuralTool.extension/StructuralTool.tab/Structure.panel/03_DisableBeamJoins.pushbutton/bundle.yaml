@@ -1,0 +1,2 @@
+title: 禁用梁接合
+tooltip: 對專案中所有結構梁禁用兩端接合（cope/mitre），加速 3D 視圖渲染。
